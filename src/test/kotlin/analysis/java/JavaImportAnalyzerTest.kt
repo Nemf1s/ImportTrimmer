@@ -15,8 +15,6 @@ import io.github.nemf1s.editing.java.JavaImportEditPlanner
 import io.github.nemf1s.editing.ImportRemovalExecutor
 import io.github.nemf1s.editing.RemovalResult
 import kotlinx.coroutines.runBlocking
-import java.util.concurrent.Callable
-import org.junit.Assert.*
 
 class JavaImportAnalyzerTest : LightJavaCodeInsightFixtureTestCase() {
     private val analyzer = JavaImportAnalyzer()
@@ -51,7 +49,10 @@ class JavaImportAnalyzerTest : LightJavaCodeInsightFixtureTestCase() {
         PsiDocumentManager.getInstance(project).commitAllDocuments()
         val second = analyze(file, first.observations.map { OccurrenceAnchor(it.key, it.range, it.expectedText) })
         val tracker = io.github.nemf1s.tracking.ImportTransitionTracker()
-        val baseline = tracker.observe(io.github.nemf1s.tracking.DocumentImportState(), first)
+        val baseline = tracker.observe(
+            io.github.nemf1s.tracking.DocumentImportState(interactionRange = null),
+            first,
+        )
         val changed = tracker.observe(baseline, second)
         val candidate = tracker.candidates(changed).single()
         assertEquals("java.util.List", candidate.displayText)
@@ -72,7 +73,7 @@ class JavaImportAnalyzerTest : LightJavaCodeInsightFixtureTestCase() {
         PsiDocumentManager.getInstance(project).commitAllDocuments()
         val snapshot = analyze(file, emptyList())
         val list = snapshot.observations.single { it.displayText == "java.util.List" }
-        val accepted = listOf(Candidate(list.key, 1, list.displayText))
+        val accepted = listOf(Candidate(list.key, 1, list.displayText, list.promptText))
         val plan = ApplicationManager.getApplication().runReadAction<ImportEditPlan?> {
             planner.plan(file, document, snapshot, accepted)
         }
@@ -116,6 +117,10 @@ class JavaImportAnalyzerTest : LightJavaCodeInsightFixtureTestCase() {
         val snapshot = analyze(file, emptyList())
         assertEquals(AnalysisQuality.RELIABLE, snapshot.quality)
         assertTrue(snapshot.observations.all { it.status == SemanticStatus.USED })
+        assertEquals(
+            setOf("static java.util.Collections.emptyList", "static java.util.Collections.*"),
+            snapshot.observations.map { it.promptText }.toSet(),
+        )
     }
 
     fun testDuplicatesAndInternalImportCommentsAreUnsupported() {
@@ -146,12 +151,13 @@ class JavaImportAnalyzerTest : LightJavaCodeInsightFixtureTestCase() {
         val executor = ImportRemovalExecutor(
             project,
             listOf(ImportProvider(analyzer, planner)),
+            beforeWrite = {},
         )
-        val result = PlatformTestUtil.callOnBgtSynchronously(Callable {
+        val result = PlatformTestUtil.callOnBgtSynchronously({
             runBlocking {
                 executor.execute(
                     document,
-                    RemovalRequest("java", listOf(Candidate(list.key, 1, list.displayText))),
+                    RemovalRequest("java", listOf(Candidate(list.key, 1, list.displayText, list.promptText))),
                     snapshot.observations.map { OccurrenceAnchor(it.key, it.range, it.expectedText) },
                     generation = 0,
                     epoch = 0,
@@ -178,7 +184,7 @@ class JavaImportAnalyzerTest : LightJavaCodeInsightFixtureTestCase() {
                 document: com.intellij.openapi.editor.Document,
                 token: FreshnessToken,
                 anchors: List<OccurrenceAnchor>,
-            ) = AnalysisSnapshot(providerId, token, AnalysisQuality.RELIABLE)
+            ) = AnalysisSnapshot(providerId, token, AnalysisQuality.RELIABLE, interactionRange = null)
         }
         val alternatePlanner = object : ImportEditPlanner {
             override val providerId = "alternate"

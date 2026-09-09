@@ -23,7 +23,7 @@ Install [ImportTrimmer-1.0.0-SNAPSHOT.zip](build/distributions/ImportTrimmer-1.0
 
 ## Behavior
 
-The default mode is **Ask before removing**. A standard IDEA notification balloon appears at the bottom-right without taking focus or covering edited code. **Remove** performs one selective, undoable command; **Keep**, closing the notification, navigation, or the configured timeout leaves the file unchanged.
+The default mode is **Ask before removing**. The plugin publishes a standard IDEA balloon, which the platform normally renders at the bottom-right without requesting editor focus. **Remove** performs one selective, undoable command; **Keep**, closing the notification, navigation, or the configured timeout leaves the file unchanged. Native-window placement and focus behavior still require the manual sandbox check recorded in `docs/validation.md`.
 
 Settings under **Settings | Editor | Import Trimmer**:
 
@@ -36,7 +36,7 @@ Settings under **Settings | Editor | Import Trimmer**:
 
 **Remove automatically** uses the same fresh semantic validation and exact edit plan without showing a notification. Undo restores the import and rebaselines tracking, so automatic mode does not immediately remove it again.
 
-**Manual only** keeps transition history but produces no unsolicited UI or edits. Invoke **Review newly unused Java imports** through Find Action. The action is available in every mode and can revisit an eligible dismissed episode.
+**Manual only** keeps transition history but produces no unsolicited UI or edits. Invoke **Review newly unused Java imports** through Find Action. The action is available in every mode, performs fresh committed analysis, and can revisit an eligible dismissed episode. Presentation waits while completion, a live template, or import-block editing is active.
 
 Disabling the plugin or changing its mode cancels pending work, closes the active notification, and establishes a new baseline. Automatic mode therefore does not process a prior backlog.
 
@@ -72,7 +72,7 @@ The initially unused `Map` import stays, and `Map` remains before `Set`.
 
 The plugin deletes only the accepted PSI-derived occurrence ranges. It does not optimize, sort, reformat, add, shorten, collapse, or convert imports. Remaining import spelling, order, grouping, comments, package text, and class body stay unchanged. A trailing import comment becomes a comment line.
 
-Analysis is deferred for syntax errors, uncommitted PSI, unresolved in-file Java references, unavailable indices, duplicate import ambiguity, module-import syntax, and comments embedded before an import semicolon. A missed suggestion is expected in these cases. If an import becomes used and unused entirely between successful debounced analyses, no transition is observed and no suggestion is made.
+Analysis is deferred for syntax errors, uncommitted PSI, unresolved in-file Java references, unavailable indices, duplicate import ambiguity, module-import syntax, multiline imports, and comments embedded before an import semicolon. A missed suggestion is expected in these cases. If an import becomes used and unused entirely between successful debounced analyses, no transition is observed and no suggestion is made.
 
 IDEA's Optimize Imports on the Fly, Actions on Save, commit optimization, formatters, and other plugins can independently modify imports. Import Trimmer does not change those settings and guarantees only its own edit.
 

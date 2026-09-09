@@ -4,9 +4,9 @@
 
 `ImportTrimmerProjectService` is the project-level light service and the sole serialized state owner. Its state reducer runs on the EDT. It owns observed document reference counts, immutable `DocumentImportState` values, one debounce job per document, removal jobs, editor/file/model subscriptions, and scoped plugin-edit provenance. Multiple editor splits share the same document state; the final split release cancels jobs and retires the state.
 
-`ImportSuggestionController` directly owns the one project notification, expiration task, accepted candidate snapshot, and monotonically unique notification token. It publishes through a registered IDEA balloon notification group and uses native notification actions. A stale expiration or close callback cannot affect a newer notification.
+`ImportSuggestionController` directly owns the one project notification, expiration task, accepted candidate snapshot, and monotonically unique notification token. It publishes through a registered IDEA balloon notification group and uses native notification actions. Programmatic close reconciliation is synchronous, while stale platform expiration callbacks cannot affect a newer notification.
 
-`ImportTransitionTracker` has no SDK service, PSI, scheduling, or UI dependency. It reduces reliable observations into usage episodes. Initially unused imports never become eligible. A reliable used-to-unused change creates one episode; dismissal suppresses unsolicited prompts for that episode, while manual review can revisit it.
+`ImportTransitionTracker` has no SDK service, PSI, scheduling, or UI dependency. It reduces reliable observations into usage episodes. Initially unused imports never become eligible. A reliable used-to-unused change creates one episode; dismissal suppresses unsolicited prompts for that episode, while manual review can revisit it. The record also keeps the first notification deadline for an episode, so revalidation after typing cannot restart its total lifetime.
 
 ## Language contracts
 
@@ -20,15 +20,15 @@ Analysis runs after per-document debounce, after PSI commit, in `smartReadAction
 
 The platform finder starts with every import as redundant and removes imports reached through Java reference resolution. Import Trimmer additionally requires every import reference to resolve before assigning USED or UNUSED, and defers the whole file when an in-file Java reference is unresolved. It never interprets absence from the redundant set alone as successful use evidence.
 
-Module imports, duplicate signatures, and block/line comments inside the syntax before the semicolon are unsupported. In 2026.2.2, a trailing line comment belongs to the import PSI node; the adapter deliberately narrows the occurrence range to the semicolon so the planner preserves that comment.
+Module imports, multiline imports, duplicate signatures, and block/line comments inside the syntax before the semicolon are unsupported. In 2026.2.2, a trailing line comment belongs to the import PSI node; the adapter deliberately narrows the occurrence range to the semicolon so the planner preserves that comment.
 
 ## Identity and freshness
 
 Java occurrence keys include static/type kind, qualified path, on-demand state, and a baseline offset. Offsets do not provide continuity by themselves: each observation also carries an anchor range and expected text. Cheap document-event reduction shifts anchors for edits strictly before an import and retires any anchor touched by an edit. Reordering, replacement, and duplicate insertion therefore rebaseline affected occurrences rather than inheriting history.
 
-Each snapshot and plan carries document modification stamp, project PSI modification count, document generation, settings/model epoch, provider ID, and committed-state confirmation. New document events immediately make proposals non-executable. Final analysis and planning happen together under a smart read action. The write command rechecks all freshness fields, candidate episode authorization, every range, and every expected substring before the first deletion.
+Each snapshot and plan carries document modification stamp, project PSI modification count, document generation, settings/model epoch, provider ID, and committed-state confirmation. Publication checks the document and project-model tokens before updating history. New document events immediately make proposals non-executable. Final analysis and planning happen together under a smart read action. The write command rechecks all freshness fields, file/document writability, candidate episode authorization, every range, and every expected substring before the first deletion.
 
-Project root/classpath changes and external content reloads withdraw proposals and rebaseline. Indexing suspends smart reads. Active completion and live templates defer presentation.
+Project root/classpath changes and external content reloads withdraw proposals and rebaseline. Entering indexing cancels pending work and makes retained history non-executable; leaving indexing schedules fresh analysis. Active completion, live templates, and a caret in the import block defer both unsolicited and manual presentation. Manual review always waits for fresh committed analysis.
 
 ## Selective editing and undo
 

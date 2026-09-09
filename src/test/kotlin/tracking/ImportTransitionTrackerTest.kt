@@ -11,14 +11,14 @@ class ImportTransitionTrackerTest {
 
     @Test
     fun initiallyUnusedIsNeverEligibleIncludingManualReview() {
-        val state = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.UNUSED))
+        val state = tracker.observe(DocumentImportState(interactionRange = null), snapshot(SemanticStatus.UNUSED))
         assertTrue(tracker.candidates(state).isEmpty())
         assertTrue(tracker.candidates(state, manual = true).isEmpty())
     }
 
     @Test
     fun usedToUnusedCreatesOneStableEpisode() {
-        val baseline = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED))
+        val baseline = tracker.observe(DocumentImportState(interactionRange = null), snapshot(SemanticStatus.USED))
         val unused = tracker.observe(baseline, snapshot(SemanticStatus.UNUSED))
         val candidate = tracker.candidates(unused).single()
         assertEquals(1, candidate.episode)
@@ -29,7 +29,7 @@ class ImportTransitionTrackerTest {
 
     @Test
     fun dismissalIsRevisitableManuallyAndUseArmsANewEpisode() {
-        val used = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED))
+        val used = tracker.observe(DocumentImportState(interactionRange = null), snapshot(SemanticStatus.USED))
         val first = tracker.observe(used, snapshot(SemanticStatus.UNUSED))
         val dismissed = tracker.dismiss(first, tracker.candidates(first))
         assertTrue(tracker.candidates(dismissed).isEmpty())
@@ -42,7 +42,7 @@ class ImportTransitionTrackerTest {
 
     @Test
     fun uncertainAnalysisPreservesHistoryButDisablesExecution() {
-        val used = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED))
+        val used = tracker.observe(DocumentImportState(interactionRange = null), snapshot(SemanticStatus.USED))
         val deferred = tracker.observe(used, AnalysisSnapshot(
             "java", token(), AnalysisQuality.DEFERRED, reason = "indexing"
         ))
@@ -53,7 +53,7 @@ class ImportTransitionTrackerTest {
 
     @Test
     fun editsBeforeImportShiftIdentityWhileEditsInImportRetireIt() {
-        val used = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED, 20))
+        val used = tracker.observe(DocumentImportState(interactionRange = null), snapshot(SemanticStatus.USED, 20))
         val shifted = tracker.edited(used, 5, 0, 4)
         assertEquals(TextRange(24, 46), shifted.anchors.single().range)
         assertTrue(shifted.records.containsKey(key))
@@ -65,7 +65,8 @@ class ImportTransitionTrackerTest {
 
     private fun snapshot(status: SemanticStatus, start: Int = 0) = AnalysisSnapshot(
         "java", token(), AnalysisQuality.RELIABLE,
-        listOf(ImportObservation(key, "java.util.List", status, true, TextRange(start, start + 22), "import java.util.List;"))
+        listOf(ImportObservation(key, "java.util.List", status, true, TextRange(start, start + 22), "import java.util.List;")),
+        interactionRange = null,
     )
     private fun token() = FreshnessToken(1, 1, 0, 0)
 }

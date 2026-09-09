@@ -42,6 +42,8 @@ class JavaImportEditPlanner : ImportEditPlanner {
     private fun deletionRange(document: Document, statement: TextRange): TextRange? {
         if (statement.startOffset < 0 || statement.endOffset > document.textLength) return null
         val line = document.getLineNumber(statement.startOffset)
+        val endLine = document.getLineNumber(statement.endOffset)
+        if (line != endLine) return null
         val lineStart = document.getLineStartOffset(line)
         val lineEnd = document.getLineEndOffset(line)
         val prefix = document.charsSequence.subSequence(lineStart, statement.startOffset)

@@ -15,6 +15,7 @@ data class ImportObservation(
     val supported: Boolean,
     val range: TextRange,
     val expectedText: String,
+    val promptText: String = displayText,
 )
 data class FreshnessToken(val stamp: Long, val psi: Long, val generation: Long, val epoch: Long)
 data class AnalysisSnapshot(
@@ -24,6 +25,7 @@ data class AnalysisSnapshot(
     val observations: List<ImportObservation> = emptyList(),
     val reason: String? = null,
     val committed: Boolean = true,
+    val interactionRange: TextRange? = null,
 )
 data class OccurrenceAnchor(val key: OccurrenceKey, val range: TextRange, val text: String)
 
@@ -34,7 +36,12 @@ interface ImportAnalyzer {
     fun analyze(file: PsiFile, document: Document, token: FreshnessToken, anchors: List<OccurrenceAnchor>): AnalysisSnapshot
 }
 
-data class Candidate(val key: OccurrenceKey, val episode: Long, val displayText: String)
+data class Candidate(
+    val key: OccurrenceKey,
+    val episode: Long,
+    val displayText: String,
+    val promptText: String = displayText,
+)
 data class RemovalRequest(val providerId: String, val candidates: List<Candidate>)
 data class TextDeletion(val range: TextRange, val expectedText: String)
 data class ImportEditPlan(val token: FreshnessToken, val deletions: List<TextDeletion>)
@@ -49,4 +56,4 @@ data class ImportProvider(val analyzer: ImportAnalyzer, val planner: ImportEditP
     init { require(analyzer.providerId == planner.providerId) }
 }
 fun selectProvider(providers: List<ImportProvider>, file: PsiFile): ImportProvider? =
-    providers.filter { it.analyzer.supports(file) }.singleOrNull()
+    providers.singleOrNull { it.analyzer.supports(file) }

@@ -17,6 +17,7 @@ enum class RemovalResult { APPLIED, STALE, DECLINED }
 class ImportRemovalExecutor(
     private val project: Project,
     private val providers: List<ImportProvider>,
+    private val beforeWrite: suspend () -> Unit = {},
 ) {
     suspend fun execute(
         document: Document,
@@ -45,6 +46,7 @@ class ImportRemovalExecutor(
                 ?.let { file to it }
         } ?: return RemovalResult.DECLINED
 
+        beforeWrite()
         return withContext(Dispatchers.EDT) {
             var result = RemovalResult.STALE
             val (file, plan) = planned
@@ -54,7 +56,8 @@ class ImportRemovalExecutor(
                 null,
                 Runnable {
                     val token = plan.token
-                    val fresh = document.modificationStamp == token.stamp &&
+                    val fresh = document.isWritable && file.isValid && file.isWritable &&
+                        document.modificationStamp == token.stamp &&
                         PsiModificationTracker.getInstance(project).modificationCount == token.psi &&
                         isAuthorized()
                     val preflight = fresh && plan.deletions.all {

@@ -9,9 +9,11 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
@@ -20,6 +22,9 @@ import io.github.nemf1s.settings.Preferences
 import io.github.nemf1s.settings.RemovalMode
 import io.github.nemf1s.tracking.DocumentImportState
 import io.github.nemf1s.tracking.ImportTransitionTracker
+import io.github.nemf1s.analysis.*
+import io.github.nemf1s.analysis.java.JavaImportAnalyzer
+import io.github.nemf1s.editing.java.JavaImportEditPlanner
 import java.util.IdentityHashMap
 import kotlinx.coroutines.Job
 
@@ -30,6 +35,7 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
 
     override fun tearDown() {
         try {
+            service?.let(::resetProviders)
             service?.dispose()
             expireNotifications()
         } finally {
@@ -83,7 +89,7 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue(document.text.contains("import java.util.List;"))
 
         service.review(myFixture.editor)
-        dispatchEvents()
+        waitUntil("Manual review did not publish after fresh analysis") { activeNotifications().size == 1 }
         assertEquals("List is no longer used. Remove its import?", activeNotifications().single().content)
     }
 
@@ -136,7 +142,7 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         PsiDocumentManager.getInstance(project).commitAllDocuments()
         waitUntil("Superseding analysis did not settle") {
             analysisJobs(service).isEmpty() && states(service)[document]?.records?.values?.any {
-                it.observation.displayText == "java.util.List" && it.lastReliable == io.github.nemf1s.analysis.SemanticStatus.USED
+                it.observation.displayText == "java.util.List" && it.lastReliable == SemanticStatus.USED
             } == true
         }
 
@@ -169,6 +175,64 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue(states(service).getValue(document).records.isEmpty())
     }
 
+    fun testIndexingEntryWithdrawsSuggestionButPreservesReliableHistory() {
+        configureTransitionFile("IndexingExample.java", "IndexingExample")
+        val service = start(RemovalMode.ASK)
+        awaitBaseline(service)
+        deleteLastUsage()
+        waitUntil("Ask-mode notification was not published") { activeNotifications().size == 1 }
+        val notification = activeNotifications().single()
+        val records = states(service).getValue(document).records
+
+        project.messageBus.syncPublisher(DumbService.DUMB_MODE).enteredDumbMode()
+        dispatchEvents()
+
+        assertTrue(notification.isExpired)
+        assertEquals(records, states(service).getValue(document).records)
+        assertFalse(states(service).getValue(document).executable)
+    }
+
+    fun testUnrelatedTypingRetainsOriginalEpisodeDeadline() {
+        configureTransitionFile("DeadlineExample.java", "DeadlineExample")
+        val service = start(RemovalMode.ASK)
+        awaitBaseline(service)
+        deleteLastUsage()
+        waitUntil("Initial notification was not published") { activeNotifications().size == 1 }
+        val initialState = states(service).getValue(document)
+        val candidate = ImportTransitionTracker().candidates(initialState).single()
+        val initialDeadline = initialState.records.getValue(candidate.key).offerDeadlineMillis
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            val insertion = document.text.lastIndexOf('}')
+            document.insertString(insertion, "    int unrelated;\n")
+        }
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        waitUntil("Revalidated notification was not published") { activeNotifications().size == 1 }
+
+        val refreshedState = states(service).getValue(document)
+        assertEquals(initialDeadline, refreshedState.records.getValue(candidate.key).offerDeadlineMillis)
+    }
+
+    fun testManualReviewWaitsUntilCaretLeavesImportBlock() {
+        configureTransitionFile("ManualInteraction.java", "ManualInteraction")
+        val service = start(RemovalMode.MANUAL)
+        awaitBaseline(service)
+        deleteLastUsage()
+        waitUntil("Manual candidate was not tracked") {
+            states(service)[document]?.let { ImportTransitionTracker().candidates(it, manual = true).isNotEmpty() } == true
+        }
+        myFixture.editor.caretModel.moveToOffset(document.text.indexOf("import"))
+
+        service.review(myFixture.editor)
+        waitForBackgroundWork(600)
+        assertTrue(activeNotifications().isEmpty())
+
+        myFixture.editor.caretModel.moveToOffset(document.text.lastIndexOf('}'))
+        waitUntil("Manual review did not resume after leaving the import block") {
+            activeNotifications().size == 1
+        }
+    }
+
     fun testNonJavaEditorIsNeverTrackedOrPrompted() {
         myFixture.configureByText("notes.txt", "List is plain text")
         val service = start(RemovalMode.ASK)
@@ -177,6 +241,77 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue(states(service).isEmpty())
         assertTrue(editorCounts(service).isEmpty())
         assertTrue(activeNotifications().isEmpty())
+    }
+
+    fun testProjectPsiChangeInvalidatesSnapshotBeforePublication() {
+        configureTransitionFile("FreshnessExample.java", "FreshnessExample")
+        val service = start(RemovalMode.ASK)
+        awaitBaseline(service)
+        val state = states(service).getValue(document)
+        val currentEpoch = field("epoch").getLong(service)
+        val snapshot = AnalysisSnapshot(
+            providerId = JavaImportAnalyzer.ID,
+            token = FreshnessToken(
+                document.modificationStamp,
+                PsiModificationTracker.getInstance(project).modificationCount,
+                state.generation,
+                currentEpoch,
+            ),
+            quality = AnalysisQuality.RELIABLE,
+        )
+        assertTrue(service.snapshotIsCurrent(document, snapshot, state.generation, currentEpoch))
+
+        myFixture.addClass("class IndependentPsiChange {}")
+
+        assertFalse(service.snapshotIsCurrent(document, snapshot, state.generation, currentEpoch))
+    }
+
+    fun testAnalysisJobIsReleasedWhenNoProviderMatches() {
+        configureTransitionFile("NoProvider.java", "NoProvider")
+        project.service<ImportTrimmerSettings>().loadState(preferences(RemovalMode.ASK))
+        val service = project.service<ImportTrimmerProjectService>().also { this.service = it }
+        providers(service).clear()
+
+        service.start()
+
+        waitUntil("Analysis job retained after provider selection declined") {
+            analysisJobs(service).isEmpty()
+        }
+        resetProviders(service)
+    }
+
+    fun testRemovalJobIsReleasedAndStateReconciledAfterPlannerFailure() {
+        configureTransitionFile("PlannerFailure.java", "PlannerFailure")
+        val service = start(RemovalMode.ASK)
+        awaitBaseline(service)
+        deleteLastUsage()
+        waitUntil("Candidate was not established") {
+            states(service)[document]?.let { ImportTransitionTracker().candidates(it).isNotEmpty() } == true
+        }
+        val candidates = ImportTransitionTracker().candidates(states(service).getValue(document))
+        val analyzer = JavaImportAnalyzer()
+        val failingPlanner = object : ImportEditPlanner {
+            override val providerId = JavaImportAnalyzer.ID
+            override fun plan(
+                file: com.intellij.psi.PsiFile,
+                document: Document,
+                snapshot: AnalysisSnapshot,
+                accepted: List<Candidate>,
+            ): ImportEditPlan? {
+                throw IllegalStateException("deliberate planner failure")
+            }
+        }
+        providers(service).apply {
+            clear()
+            add(ImportProvider(analyzer, failingPlanner))
+        }
+
+        invokeRemoveAccepted(service, candidates)
+
+        waitUntil("Removal job retained after planner failure") { removalJobs(service).isEmpty() }
+        resetProviders(service)
+        assertTrue(document.text.contains("import java.util.List;"))
+        assertTrue(states(service).getValue(document).records.isEmpty())
     }
 
     private val document: Document
@@ -192,6 +327,7 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
             }
         """.trimIndent()
         myFixture.configureByText(name, text)
+        myFixture.editor.caretModel.moveToOffset(text.lastIndexOf('}'))
         PsiDocumentManager.getInstance(project).commitAllDocuments()
         return text
     }
@@ -273,6 +409,21 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
     private fun analysisJobs(service: ImportTrimmerProjectService): IdentityHashMap<Document, Job> =
         field("analysisJobs").get(service) as IdentityHashMap<Document, Job>
 
+    @Suppress("UNCHECKED_CAST")
+    private fun removalJobs(service: ImportTrimmerProjectService): IdentityHashMap<Document, Job> =
+        field("removalJobs").get(service) as IdentityHashMap<Document, Job>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun providers(service: ImportTrimmerProjectService): MutableList<ImportProvider> =
+        field("providers").get(service) as MutableList<ImportProvider>
+
+    private fun resetProviders(service: ImportTrimmerProjectService) {
+        providers(service).apply {
+            clear()
+            add(ImportProvider(JavaImportAnalyzer(), JavaImportEditPlanner()))
+        }
+    }
+
     private fun field(name: String) = ImportTrimmerProjectService::class.java.getDeclaredField(name).apply {
         isAccessible = true
     }
@@ -281,6 +432,14 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         ImportTrimmerProjectService::class.java.getDeclaredMethod("releaseEditor", Editor::class.java).apply {
             isAccessible = true
         }.invoke(service, editor)
+    }
+
+    private fun invokeRemoveAccepted(service: ImportTrimmerProjectService, candidates: List<Candidate>) {
+        ImportTrimmerProjectService::class.java.getDeclaredMethod(
+            "removeAccepted",
+            Document::class.java,
+            List::class.java,
+        ).apply { isAccessible = true }.invoke(service, document, candidates)
     }
 
     companion object {

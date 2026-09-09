@@ -8,12 +8,14 @@ data class TrackedImport(
     val episode: Long = 0,
     val eligible: Boolean = false,
     val dismissed: Boolean = false,
+    val offerDeadlineMillis: Long? = null,
 )
 data class DocumentImportState(
     val records: Map<OccurrenceKey, TrackedImport> = emptyMap(),
     val anchors: List<OccurrenceAnchor> = emptyList(),
     val generation: Long = 0,
     val executable: Boolean = false,
+    val interactionRange: com.intellij.openapi.util.TextRange? = null,
 )
 
 class ImportTransitionTracker {
@@ -32,16 +34,40 @@ class ImportTransitionTracker {
             }
             current.key to next
         }
-        return state.copy(records = records, executable = snapshot.observations.none { it.status == SemanticStatus.UNKNOWN },
-            anchors = snapshot.observations.map { OccurrenceAnchor(it.key, it.range, it.expectedText) })
+        return state.copy(
+            records = records,
+            executable = snapshot.observations.none { it.status == SemanticStatus.UNKNOWN },
+            anchors = snapshot.observations.map { OccurrenceAnchor(it.key, it.range, it.expectedText) },
+            interactionRange = snapshot.interactionRange,
+        )
     }
 
     fun candidates(state: DocumentImportState, manual: Boolean = false): List<Candidate> {
         if (!state.executable) return emptyList()
         return state.records.values.filter {
             it.eligible && it.observation.supported && it.observation.status == SemanticStatus.UNUSED && (manual || !it.dismissed)
-        }.map { Candidate(it.observation.key, it.episode, it.observation.displayText) }
+        }.map {
+            Candidate(it.observation.key, it.episode, it.observation.displayText, it.observation.promptText)
+        }
     }
+
+    fun markOffered(
+        state: DocumentImportState,
+        offered: List<Candidate>,
+        deadlineMillis: Long,
+    ): DocumentImportState {
+        val episodes = offered.associate { it.key to it.episode }
+        return state.copy(records = state.records.mapValues { (key, record) ->
+            if (episodes[key] == record.episode && record.eligible && record.offerDeadlineMillis == null) {
+                record.copy(offerDeadlineMillis = deadlineMillis)
+            } else {
+                record
+            }
+        })
+    }
+
+    fun offerDeadline(state: DocumentImportState, candidate: Candidate): Long? =
+        state.records[candidate.key]?.takeIf { it.episode == candidate.episode }?.offerDeadlineMillis
 
     fun dismiss(state: DocumentImportState, accepted: List<Candidate>): DocumentImportState {
         val episodes = accepted.associate { it.key to it.episode }
@@ -64,6 +90,6 @@ class ImportTransitionTracker {
         }
         val retained = anchors.map { it.key }.toSet()
         return state.copy(anchors = anchors, records = state.records.filterKeys { it in retained },
-            generation = state.generation + 1, executable = false)
+            generation = state.generation + 1, executable = false, interactionRange = null)
     }
 }

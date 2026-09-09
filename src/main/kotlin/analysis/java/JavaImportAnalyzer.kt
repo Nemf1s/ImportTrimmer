@@ -58,6 +58,7 @@ class JavaImportAnalyzer : ImportAnalyzer {
             val key = stableAnchor?.key ?: OccurrenceKey(ID, signature(statement) + "@" + range.startOffset)
             val supported = semicolon >= 0 && statement.javaClass.simpleName != "PsiImportModuleStatement" &&
                 !expectedText.contains("/*") && !expectedText.contains("//") &&
+                !expectedText.contains('\n') && !expectedText.contains('\r') &&
                 signatures[signature(statement)] == 1
             val status = when {
                 !supported || !resolved -> SemanticStatus.UNKNOWN
@@ -71,6 +72,7 @@ class JavaImportAnalyzer : ImportAnalyzer {
                 supported = supported,
                 range = range,
                 expectedText = expectedText,
+                promptText = promptText(statement),
             )
             }
         } catch (_: IndexNotReadyException) {
@@ -91,7 +93,13 @@ class JavaImportAnalyzer : ImportAnalyzer {
         if (unresolved) {
             return AnalysisSnapshot(ID, token, AnalysisQuality.DEFERRED, reason = "An in-file Java reference is unresolved")
         }
-        return AnalysisSnapshot(ID, token, AnalysisQuality.RELIABLE, observations)
+        return AnalysisSnapshot(
+            ID,
+            token,
+            AnalysisQuality.RELIABLE,
+            observations,
+            interactionRange = javaFile.importList?.textRange,
+        )
     }
 
     private fun signature(statement: PsiImportStatementBase): String {
@@ -102,7 +110,14 @@ class JavaImportAnalyzer : ImportAnalyzer {
 
     private fun displayText(statement: PsiImportStatementBase): String {
         val path = statement.importReference?.qualifiedName ?: statement.text
-        return if (statement is PsiImportStaticStatement) "static $path" else path
+        val wildcard = if (statement.isOnDemand) ".*" else ""
+        return if (statement is PsiImportStaticStatement) "static $path$wildcard" else "$path$wildcard"
+    }
+
+    private fun promptText(statement: PsiImportStatementBase): String {
+        val display = displayText(statement)
+        return if (statement is PsiImportStaticStatement || statement.isOnDemand) display
+        else display.substringAfterLast('.')
     }
 
     companion object { const val ID = "java" }

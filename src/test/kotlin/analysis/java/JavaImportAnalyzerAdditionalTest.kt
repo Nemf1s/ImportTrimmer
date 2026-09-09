@@ -193,6 +193,19 @@ class JavaImportAnalyzerAdditionalTest : LightJavaCodeInsightFixtureTestCase() {
         assertEquals("", document.text)
     }
 
+    fun testMultilineImportIsUnsupportedAndPlanningDeclinesWithoutThrowing() {
+        val file = configureRaw(
+            "MultilineImport.java",
+            "import java.util.\n    List;\nclass MultilineImport {}",
+        )
+        val snapshot = analyze(file)
+        val observation = snapshot.observations.single()
+
+        assertFalse(observation.supported)
+        assertEquals(SemanticStatus.UNKNOWN, observation.status)
+        assertNull(plan(file, snapshot, Candidate(observation.key, 1, observation.displayText)))
+    }
+
     fun testPlannerPreservesCrLfSeparatorsAroundRemovedImport() {
         val before = "import java.util.Map;\r\nimport java.util.List;\r\n\r\nclass CrLf {}"
         val file = configureRaw("CrLf.java", before)
@@ -291,6 +304,41 @@ class JavaImportAnalyzerAdditionalTest : LightJavaCodeInsightFixtureTestCase() {
             document.setReadOnly(false)
         }
         assertEquals(before, document.text)
+    }
+
+    fun testExecutorRechecksWritabilityAfterPlanningBeforeWrite() {
+        val javaFile = configure("WriteRace.java", """
+            import java.util.List;
+            class WriteRace {}
+        """)
+        val snapshot = analyze(javaFile)
+        val request = RemovalRequest("java", listOf(candidate(snapshot, "java.util.List")))
+        val before = document.text
+        val executor = ImportRemovalExecutor(
+            project,
+            listOf(ImportProvider(analyzer, planner)),
+            beforeWrite = { document.setReadOnly(true) },
+        )
+
+        try {
+            val result = PlatformTestUtil.callOnBgtSynchronously({
+                runBlocking {
+                    executor.execute(
+                        document,
+                        request,
+                        anchors(snapshot),
+                        generation = 0,
+                        epoch = 0,
+                        isAuthorized = { true },
+                        markPluginEdit = {},
+                    )
+                }
+            }, 30)
+            assertEquals(RemovalResult.STALE, result)
+            assertEquals(before, document.text)
+        } finally {
+            document.setReadOnly(false)
+        }
     }
 
     fun testExecutorReanalysisRejectsImportThatBecameUsedBeforeAcceptance() {

@@ -49,7 +49,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue(NotificationGroupManager.getInstance().isGroupRegistered(GROUP_ID))
         myFixture.editor.caretModel.moveToOffset(3)
 
-        controller.show(myFixture.editor, listOf(listCandidate()), timeoutSeconds = 10)
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
         dispatchEvents()
         val notification = activeNotification()
 
@@ -62,7 +62,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
     }
 
     fun testConfiguredTimeoutExpiresAtBoundaryWithoutAccepting() {
-        controller.show(myFixture.editor, listOf(listCandidate()), timeoutSeconds = 10)
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
         dispatchEvents()
         val notification = activeNotification()
 
@@ -80,7 +80,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
     }
 
     fun testKeepActionExpiresWithoutAcceptingAndReportsKeep() {
-        controller.show(myFixture.editor, listOf(listCandidate()), timeoutSeconds = 10)
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
         dispatchEvents()
         val notification = activeNotification()
 
@@ -93,7 +93,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
     }
 
     fun testPlatformDismissalReportsDismissedAndReleasesSnapshot() {
-        controller.show(myFixture.editor, listOf(listCandidate()), timeoutSeconds = 10)
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
         dispatchEvents()
         val notification = activeNotification()
 
@@ -106,12 +106,12 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
     }
 
     fun testStaleExpirationCannotCloseReplacementNotification() {
-        controller.show(myFixture.editor, listOf(listCandidate()), timeoutSeconds = 10)
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
         dispatchEvents()
         val firstNotification = activeNotification()
         val firstTask = scheduler.tasks.single()
 
-        controller.show(myFixture.editor, listOf(setCandidate()), timeoutSeconds = 10)
+        controller.show(myFixture.editor, listOf(setCandidate()), timeoutMillis = 10_000)
         dispatchEvents()
         val replacement = activeNotification()
         firstTask.runIgnoringCancellation()
@@ -125,7 +125,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
 
     fun testMultipleCandidatesStayFrozenAndUseRemoveAllAction() {
         val offered = mutableListOf(listCandidate(), setCandidate())
-        controller.show(myFixture.editor, offered, timeoutSeconds = 10)
+        controller.show(myFixture.editor, offered, timeoutMillis = 10_000)
         dispatchEvents()
         val notification = activeNotification()
         offered += Candidate(OccurrenceKey("java", "type:java.util.Map@60"), 1, "java.util.Map")
@@ -136,6 +136,44 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
 
         assertEquals(listOf(listCandidate(), setCandidate()), accepted.single())
         assertEquals(SuggestionCloseReason.ACCEPTED, closed.single().second)
+    }
+
+    fun testCloseIsReconciledBeforeImmediateReplacement() {
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
+        dispatchEvents()
+
+        controller.close(SuggestionCloseReason.NAVIGATION)
+        controller.show(myFixture.editor, listOf(setCandidate()), timeoutMillis = 10_000)
+
+        assertEquals(listOf(listCandidate()) to SuggestionCloseReason.NAVIGATION, closed.single())
+        assertEquals("Set is no longer used. Remove its import?", activeNotification().content)
+    }
+
+    fun testAdapterPromptTextPreservesQualifiedStaticAndWildcardLabels() {
+        val static = Candidate(
+            OccurrenceKey("java", "static:java.util.Collections.emptyList@0"),
+            episode = 1,
+            displayText = "static java.util.Collections.emptyList",
+            promptText = "static java.util.Collections.emptyList",
+        )
+        controller.show(myFixture.editor, listOf(static), timeoutMillis = 10_000)
+        dispatchEvents()
+
+        assertEquals(
+            "static java.util.Collections.emptyList is no longer used. Remove its import?",
+            activeNotification().content,
+        )
+
+        val wildcard = Candidate(
+            OccurrenceKey("java", "type:java.util@30:*"),
+            episode = 1,
+            displayText = "java.util.*",
+            promptText = "java.util.*",
+        )
+        controller.show(myFixture.editor, listOf(wildcard), timeoutMillis = 10_000)
+        dispatchEvents()
+
+        assertEquals("java.util.* is no longer used. Remove its import?", activeNotification().content)
     }
 
     private fun activeNotification(): Notification = NotificationsManager.getNotificationsManager()
@@ -170,12 +208,14 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
         OccurrenceKey("java", "type:java.util.List@0"),
         episode = 1,
         displayText = "java.util.List",
+        promptText = "List",
     )
 
     private fun setCandidate() = Candidate(
         OccurrenceKey("java", "type:java.util.Set@30"),
         episode = 1,
         displayText = "java.util.Set",
+        promptText = "Set",
     )
 
     private class FakeScheduler : DelayScheduler {

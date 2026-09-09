@@ -142,6 +142,25 @@ class ImportTransitionTrackerAdditionalTest {
         assertTrue(tracker.candidates(unused, manual = true).isEmpty())
     }
 
+    @Test
+    fun offeredEpisodeKeepsItsOriginalDeadlineAcrossEditAndReanalysis() {
+        val used = tracker.observe(DocumentImportState(), snapshot(observation(listKey, SemanticStatus.USED)))
+        val unused = tracker.observe(used, snapshot(observation(listKey, SemanticStatus.UNUSED)))
+        val candidate = tracker.candidates(unused).single()
+        val offered = tracker.markOffered(unused, listOf(candidate), deadlineMillis = 10_000)
+        val edited = tracker.edited(offered, offset = 50, oldLength = 0, newLength = 1)
+        val observedAgain = tracker.observe(edited, snapshot(observation(listKey, SemanticStatus.UNUSED)))
+
+        assertEquals(10_000L, tracker.offerDeadline(observedAgain, candidate))
+        assertEquals(
+            10_000L,
+            tracker.offerDeadline(
+                tracker.markOffered(observedAgain, listOf(candidate), deadlineMillis = 20_000),
+                candidate,
+            ),
+        )
+    }
+
     private fun snapshot(vararg observations: ImportObservation) = AnalysisSnapshot(
         providerId = "java",
         token = token(),

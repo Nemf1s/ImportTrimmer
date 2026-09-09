@@ -27,18 +27,17 @@ class ImportSuggestionController(
     private var document: Document? = null
     private var candidates: List<Candidate> = emptyList()
     private var timeout: CancelHandle? = null
-    private var requestedCloseReason: SuggestionCloseReason? = null
 
-    fun show(editor: Editor, offered: List<Candidate>, timeoutSeconds: Int) {
+    fun show(editor: Editor, offered: List<Candidate>, timeoutMillis: Long) {
         if (offered.isEmpty() || project.isDisposed) return
+        reconcileExpiredNotification()
         close(SuggestionCloseReason.OBSOLETE)
         notificationToken = TOKENS.incrementAndGet()
         document = editor.document
         candidates = offered.toList()
-        requestedCloseReason = null
 
         val prompt = if (offered.size == 1) {
-            message("notification.single", offered.single().displayText.substringAfterLast('.'))
+            message("notification.single", offered.single().promptText)
         } else {
             message("notification.multiple", offered.size)
         }
@@ -48,8 +47,8 @@ class ImportSuggestionController(
             .setImportant(false)
         val token = notificationToken
         created.addAction(NotificationAction.create(message("notification.keep")) { _, current ->
-            if (notificationToken == token && requestedCloseReason == null) {
-                requestedCloseReason = SuggestionCloseReason.KEEP
+            if (notificationToken == token) {
+                finishClose(token, SuggestionCloseReason.KEEP)
                 current.expire()
             }
         })
@@ -58,20 +57,20 @@ class ImportSuggestionController(
         ) { _, current ->
             val acceptedDocument = document
             val accepted = candidates
-            if (notificationToken == token && acceptedDocument != null && requestedCloseReason == null) {
-                requestedCloseReason = SuggestionCloseReason.ACCEPTED
+            if (notificationToken == token && acceptedDocument != null) {
+                finishClose(token, SuggestionCloseReason.ACCEPTED)
                 onAccepted(acceptedDocument, accepted)
                 current.expire()
             }
         })
         created.whenExpired {
             SwingUtilities.invokeLater {
-                finishClose(token, requestedCloseReason ?: SuggestionCloseReason.DISMISSED)
+                finishClose(token, SuggestionCloseReason.DISMISSED)
             }
         }
 
         notification = created
-        timeout = scheduler.schedule(timeoutSeconds * 1_000L) {
+        timeout = scheduler.schedule(timeoutMillis) {
             SwingUtilities.invokeLater {
                 if (notificationToken == token) close(SuggestionCloseReason.TIMEOUT)
             }
@@ -81,8 +80,11 @@ class ImportSuggestionController(
 
     fun close(reason: SuggestionCloseReason) {
         val current = notification ?: return
-        if (requestedCloseReason == null) requestedCloseReason = reason
-        timeout?.cancel()
+        if (current.isExpired) {
+            finishClose(notificationToken, SuggestionCloseReason.DISMISSED)
+            return
+        }
+        finishClose(notificationToken, reason)
         current.expire()
     }
 
@@ -97,9 +99,14 @@ class ImportSuggestionController(
         document = null
         candidates = emptyList()
         timeout = null
-        requestedCloseReason = null
         notificationToken = 0
         if (closedDocument != null) onClosed(closedDocument, closedCandidates, reason)
+    }
+
+    private fun reconcileExpiredNotification() {
+        if (notification?.isExpired == true) {
+            finishClose(notificationToken, SuggestionCloseReason.DISMISSED)
+        }
     }
 
     companion object {
