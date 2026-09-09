@@ -2,10 +2,11 @@
 
 # ImportTrimmer Changelog
 
-## [Unreleased]
+## [1.0.0] - 2026-09-09
 
-- Track reliable Java import used-to-unused transitions in open project editors.
-- Add ask, automatic, and manual review modes with project settings.
-- Add non-focus-stealing suggestions with a fixed total timeout that editor activity cannot extend.
-- Add selective fresh validation, preservation-aware edits, and undo support.
-- Target and verify IntelliJ IDEA Ultimate 2026.2.2.
+- Detect Java imports that transition from used to unused in open editors.
+- Offer ask, automatic, and on-request cleanup modes with project-level settings.
+- Use native IDE notifications with Remove, Keep, and Settings actions.
+- Perform fresh semantic validation before each selective, undoable removal.
+- Preserve unaffected imports, comments, formatting, and source text.
+- Compatible with IntelliJ IDEA 2026.2.2.

@@ -19,7 +19,7 @@ The exact `since-build` and `until-build` are deliberate. Compatibility with lat
 
 ## Install
 
-Install [ImportTrimmer-1.0.0-SNAPSHOT.zip](build/distributions/ImportTrimmer-1.0.0-SNAPSHOT.zip) through **Settings | Plugins | gear icon | Install Plugin from Disk**. Do not unpack the ZIP.
+Install [ImportTrimmer-1.0.0.zip](build/distributions/ImportTrimmer-1.0.0.zip) through **Settings | Plugins | gear icon | Install Plugin from Disk**. Do not unpack the ZIP.
 
 ## Behavior
 
@@ -36,7 +36,7 @@ Settings under **Settings | Editor | Import Trimmer**:
 
 **Remove automatically** uses the same fresh semantic validation and exact edit plan without showing a notification. Undo restores the import and rebaselines tracking, so automatic mode does not immediately remove it again.
 
-**Manual only** keeps transition history but produces no unsolicited UI or edits. Invoke **Review newly unused Java imports** through Find Action. The action is available in every mode, performs fresh committed analysis, and can revisit an eligible dismissed episode. Presentation waits while completion, a live template, or import-block editing is active.
+**Only when requested** keeps transition history but produces no unsolicited UI or edits. Invoke **Review newly unused Java imports** through Find Action. The action is available in every mode, performs fresh committed analysis, and can revisit an eligible dismissed episode. Presentation waits while completion, a live template, or import-block editing is active.
 
 Disabling the plugin or changing its mode cancels pending work, closes the active notification, and establishes a new baseline. Automatic mode therefore does not process a prior backlog.
 
@@ -87,7 +87,7 @@ $env:JAVA_HOME = 'C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.2\jbr'
 .\gradlew.bat verifyPlugin
 ```
 
-The installable ZIP is produced at `build/distributions/ImportTrimmer-1.0.0-SNAPSHOT.zip`. Architecture decisions and validation evidence are in [docs/architecture.md](docs/architecture.md) and [docs/validation.md](docs/validation.md).
+The installable ZIP is produced at `build/distributions/ImportTrimmer-1.0.0.zip`. Architecture decisions and validation evidence are in [docs/architecture.md](docs/architecture.md) and [docs/validation.md](docs/validation.md).
 
 ## Demo recording checklist
 
@@ -98,4 +98,4 @@ The installable ZIP is produced at `build/distributions/ImportTrimmer-1.0.0-SNAP
 5. Let the notification time out and show that the file remains unchanged.
 6. Invoke **Review newly unused Java imports**, accept, and show that only `List` disappears.
 7. Undo once to restore the import, then edit normally and confirm there is no immediate re-removal.
-8. Repeat briefly in automatic and manual-only modes.
+8. Repeat briefly in automatic and on-request modes.

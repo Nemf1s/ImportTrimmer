@@ -1,10 +1,38 @@
-<idea-plugin>
+<idea-plugin url="https://github.com/Nemf1s/ImportTrimmer">
   <id>io.github.nemf1s.ImportTrimmer</id>
   <name>Import Trimmer</name>
   <vendor>Nemf1s</vendor>
   <description><![CDATA[
-    Offers to remove Java imports observed transitioning from used to unused.
-    Preserves remaining import order and unrelated text.
+    <p>Remove Java imports when they become unused.</p>
+
+    <p>
+      Import Trimmer watches open Java files and reacts only to imports that it has first
+      observed in use. Imports that were already unused when observation began are left alone.
+      It is a focused companion to your normal editing workflow, not a general Optimize Imports replacement.
+    </p>
+
+    <h3>Choose how cleanup happens</h3>
+    <ul>
+      <li><b>Ask before removing</b> (default): review a native IDE notification before anything changes.</li>
+      <li><b>Remove automatically</b>: apply the same validated cleanup without a prompt.</li>
+      <li><b>Only when requested</b>: review eligible imports from <i>Find Action</i> with no unsolicited prompts or edits.</li>
+      <li>Dismissed and timed-out suggestions leave the file unchanged.</li>
+    </ul>
+
+    <h3>Designed for focused edits</h3>
+    <ul>
+      <li>Revalidates Java usage immediately before removal.</li>
+      <li>Removes only the selected import statements.</li>
+      <li>Preserves remaining import order, grouping, comments, and unrelated source text.</li>
+      <li>Defers cleanup when analysis is incomplete or the editor is in a sensitive state.</li>
+      <li>Provides project-level controls under <i>Settings | Editor | Import Trimmer</i>.</li>
+      <li>Runs locally without telemetry, remote analysis, or background network access.</li>
+    </ul>
+
+    <p>
+      This release supports Java source files in IntelliJ IDEA 2026.2.2.
+      Kotlin source cleanup is not included.
+    </p>
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
   <depends>com.intellij.java</depends>
