@@ -19,6 +19,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
     private lateinit var controller: ImportSuggestionController
     private val accepted = mutableListOf<List<Candidate>>()
     private val closed = mutableListOf<Pair<List<Candidate>, SuggestionCloseReason>>()
+    private var settingsOpened = 0
 
     override fun getProjectDescriptor(): LightProjectDescriptor = JAVA_21
 
@@ -32,6 +33,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
             scheduler = scheduler,
             onAccepted = { _, candidates -> accepted += candidates },
             onClosed = { _, candidates, reason -> closed += candidates to reason },
+            openSettings = { settingsOpened++ },
         )
     }
 
@@ -56,7 +58,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
         assertEquals("Unused import detected", notification.title)
         assertEquals("List is no longer used. Remove its import?", notification.content)
         assertFalse(notification.content.contains("Ignoring", ignoreCase = true))
-        assertEquals(listOf("Keep", "Remove"), notification.actions.map { it.templateText })
+        assertEquals(listOf("Keep", "Remove", "Settings"), notification.actions.map { it.templateText })
         assertEquals(3, myFixture.editor.caretModel.offset)
         assertTrue(controller.owns(myFixture.editor.document))
     }
@@ -90,6 +92,20 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue(accepted.isEmpty())
         assertEquals(listOf(listCandidate()) to SuggestionCloseReason.KEEP, closed.single())
         assertTrue(scheduler.tasks.single().cancelled)
+    }
+
+    fun testSettingsActionOpensPluginSettingsWithoutClosingSuggestion() {
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
+        dispatchEvents()
+        val notification = activeNotification()
+
+        invoke(notification, actionIndex = 2)
+
+        assertEquals(1, settingsOpened)
+        assertFalse(notification.isExpired)
+        assertTrue(accepted.isEmpty())
+        assertTrue(closed.isEmpty())
+        assertTrue(controller.owns(myFixture.editor.document))
     }
 
     fun testPlatformDismissalReportsDismissedAndReleasesSnapshot() {
@@ -157,7 +173,7 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
         offered += Candidate(OccurrenceKey("java", "type:java.util.Map@60"), 1, "java.util.Map")
 
         assertEquals("2 imports are no longer used. Remove them?", notification.content)
-        assertEquals(listOf("Keep", "Remove all"), notification.actions.map { it.templateText })
+        assertEquals(listOf("Keep", "Remove all", "Settings"), notification.actions.map { it.templateText })
         invoke(notification, actionIndex = 1)
 
         assertEquals(listOf(listCandidate(), setCandidate()), accepted.single())

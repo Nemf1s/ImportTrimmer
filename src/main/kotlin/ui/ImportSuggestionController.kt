@@ -6,9 +6,11 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import io.github.nemf1s.MyMessageBundle.message
 import io.github.nemf1s.analysis.Candidate
+import io.github.nemf1s.settings.ImportTrimmerConfigurable
 import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
 
@@ -21,6 +23,9 @@ class ImportSuggestionController(
     private val scheduler: DelayScheduler,
     private val onAccepted: (Document, List<Candidate>) -> Unit,
     private val onClosed: (Document, List<Candidate>, SuggestionCloseReason) -> Unit,
+    private val openSettings: (Project) -> Unit = {
+        ShowSettingsUtil.getInstance().showSettingsDialog(it, ImportTrimmerConfigurable::class.java)
+    },
 ) {
     private var notification: Notification? = null
     private var notificationToken = 0L
@@ -68,6 +73,9 @@ class ImportSuggestionController(
                 onAccepted(acceptedDocument, accepted)
                 current.expire()
             }
+        })
+        created.addAction(NotificationAction.create(message("notification.settings")) { _, _ ->
+            openSettings(project)
         })
         created.whenExpired {
             SwingUtilities.invokeLater {
