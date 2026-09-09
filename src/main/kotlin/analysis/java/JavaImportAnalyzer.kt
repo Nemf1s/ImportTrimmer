@@ -42,7 +42,11 @@ class JavaImportAnalyzer : ImportAnalyzer {
             statements.map { statement ->
             ProgressManager.checkCanceled()
             val reference = statement.importReference
-            val resolved = reference?.resolve()
+            val resolved = reference != null && if (statement is PsiImportStaticStatement) {
+                reference.multiResolve(false).any { it.isValidResult && it.element != null }
+            } else {
+                reference.resolve() != null
+            }
             val psiText = statement.text
             val semicolon = psiText.indexOf(';')
             val expectedText = if (semicolon >= 0) psiText.substring(0, semicolon + 1) else psiText
@@ -56,7 +60,7 @@ class JavaImportAnalyzer : ImportAnalyzer {
                 !expectedText.contains("/*") && !expectedText.contains("//") &&
                 signatures[signature(statement)] == 1
             val status = when {
-                !supported || reference == null || resolved == null -> SemanticStatus.UNKNOWN
+                !supported || !resolved -> SemanticStatus.UNKNOWN
                 statement in redundant -> SemanticStatus.UNUSED
                 else -> SemanticStatus.USED
             }
@@ -78,6 +82,7 @@ class JavaImportAnalyzer : ImportAnalyzer {
             PsiTreeUtil.collectElementsOfType(javaFile, PsiJavaCodeReferenceElement::class.java).any {
                 PsiTreeUtil.getParentOfType(it, PsiImportStatementBase::class.java, false) == null &&
                     PsiTreeUtil.getParentOfType(it, PsiPackageStatement::class.java, false) == null &&
+                    it.parent !is PsiJavaCodeReferenceElement &&
                     it.resolve() == null
             }
         } catch (_: IndexNotReadyException) {

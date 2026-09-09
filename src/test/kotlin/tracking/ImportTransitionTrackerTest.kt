@@ -10,14 +10,14 @@ class ImportTransitionTrackerTest {
     private val key = OccurrenceKey("java", "type:java.util.List@0")
 
     @Test
-    fun `initially unused is never eligible including manual review`() {
+    fun initiallyUnusedIsNeverEligibleIncludingManualReview() {
         val state = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.UNUSED))
         assertTrue(tracker.candidates(state).isEmpty())
         assertTrue(tracker.candidates(state, manual = true).isEmpty())
     }
 
     @Test
-    fun `used to unused creates one stable episode`() {
+    fun usedToUnusedCreatesOneStableEpisode() {
         val baseline = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED))
         val unused = tracker.observe(baseline, snapshot(SemanticStatus.UNUSED))
         val candidate = tracker.candidates(unused).single()
@@ -28,7 +28,7 @@ class ImportTransitionTrackerTest {
     }
 
     @Test
-    fun `dismissal is revisitable manually and use arms a new episode`() {
+    fun dismissalIsRevisitableManuallyAndUseArmsANewEpisode() {
         val used = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED))
         val first = tracker.observe(used, snapshot(SemanticStatus.UNUSED))
         val dismissed = tracker.dismiss(first, tracker.candidates(first))
@@ -41,7 +41,7 @@ class ImportTransitionTrackerTest {
     }
 
     @Test
-    fun `uncertain analysis preserves history but disables execution`() {
+    fun uncertainAnalysisPreservesHistoryButDisablesExecution() {
         val used = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED))
         val deferred = tracker.observe(used, AnalysisSnapshot(
             "java", token(), AnalysisQuality.DEFERRED, reason = "indexing"
@@ -52,7 +52,7 @@ class ImportTransitionTrackerTest {
     }
 
     @Test
-    fun `edits before import shift identity while edits in import retire it`() {
+    fun editsBeforeImportShiftIdentityWhileEditsInImportRetireIt() {
         val used = tracker.observe(DocumentImportState(), snapshot(SemanticStatus.USED, 20))
         val shifted = tracker.edited(used, 5, 0, 4)
         assertEquals(TextRange(24, 46), shifted.anchors.single().range)
