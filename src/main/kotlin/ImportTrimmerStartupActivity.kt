@@ -1,0 +1,16 @@
+package io.github.nemf1s
+
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.startup.ProjectActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class ImportTrimmerStartupActivity : ProjectActivity {
+    override suspend fun execute(project: Project) {
+        withContext(Dispatchers.EDT) {
+            project.service<ImportTrimmerProjectService>().start()
+        }
+    }
+}
