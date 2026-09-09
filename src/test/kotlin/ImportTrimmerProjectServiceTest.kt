@@ -198,6 +198,7 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         awaitBaseline(service)
         deleteLastUsage()
         waitUntil("Initial notification was not published") { activeNotifications().size == 1 }
+        val initialNotification = activeNotifications().single()
         val initialState = states(service).getValue(document)
         val candidate = ImportTransitionTracker().candidates(initialState).single()
         val initialDeadline = initialState.records.getValue(candidate.key).offerDeadlineMillis
@@ -207,9 +208,12 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
             document.insertString(insertion, "    int unrelated;\n")
         }
         PsiDocumentManager.getInstance(project).commitAllDocuments()
-        waitUntil("Revalidated notification was not published") { activeNotifications().size == 1 }
+        waitUntil("Suggestion was not revalidated") {
+            analysisJobs(service).isEmpty() && states(service)[document]?.executable == true
+        }
 
         val refreshedState = states(service).getValue(document)
+        assertSame(initialNotification, activeNotifications().single())
         assertEquals(initialDeadline, refreshedState.records.getValue(candidate.key).offerDeadlineMillis)
     }
 
@@ -308,10 +312,75 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
 
         invokeRemoveAccepted(service, candidates)
 
-        waitUntil("Removal job retained after planner failure") { removalJobs(service).isEmpty() }
+        waitUntil("Removal failure was not reconciled through fresh analysis") {
+            removalJobs(service).isEmpty() && analysisJobs(service).isEmpty() &&
+                states(service)[document]?.let { it.executable && it.records.size == 2 } == true
+        }
         resetProviders(service)
         assertTrue(document.text.contains("import java.util.List;"))
-        assertTrue(states(service).getValue(document).records.isEmpty())
+        assertEquals(2, states(service).getValue(document).records.size)
+        assertTrue(ImportTransitionTracker().candidates(states(service).getValue(document)).isEmpty())
+    }
+
+    fun testRemovalFailureAfterPartialMutationSchedulesFreshAnalysis() {
+        val text = """
+            import java.util.concurrent.atomic.AtomicReference;
+
+            class PartialFailure {
+                AtomicReference<String> value;
+            }
+        """.trimIndent()
+        myFixture.configureByText("PartialFailure.java", text)
+        myFixture.editor.caretModel.moveToOffset(text.lastIndexOf('}'))
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        val service = start(RemovalMode.ASK)
+        waitUntil("Initial import baseline was not established") {
+            states(service)[document]?.records?.size == 1
+        }
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            val usage = "    AtomicReference<String> value;\n"
+            val start = document.text.indexOf(usage)
+            assertTrue(start >= 0)
+            document.deleteString(start, start + usage.length)
+        }
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        waitUntil("Candidate was not established") {
+            states(service)[document]?.let { ImportTransitionTracker().candidates(it).size == 1 } == true
+        }
+        val candidates = ImportTransitionTracker().candidates(states(service).getValue(document))
+        val generationBeforeRemoval = states(service).getValue(document).generation
+        val delegate = JavaImportEditPlanner()
+        val partiallyFailingPlanner = object : ImportEditPlanner {
+            override val providerId = JavaImportAnalyzer.ID
+            override fun plan(
+                file: com.intellij.psi.PsiFile,
+                document: Document,
+                snapshot: AnalysisSnapshot,
+                accepted: List<Candidate>,
+            ): ImportEditPlan? {
+                val valid = delegate.plan(file, document, snapshot, accepted) ?: return null
+                val deletion = valid.deletions.single()
+                return valid.copy(deletions = listOf(deletion, deletion))
+            }
+        }
+        providers(service).apply {
+            clear()
+            add(ImportProvider(JavaImportAnalyzer(), partiallyFailingPlanner))
+        }
+
+        invokeRemoveAccepted(service, candidates)
+
+        waitUntil("Partial removal failure was not reconciled through fresh analysis") {
+            removalJobs(service).isEmpty() && analysisJobs(service).isEmpty() &&
+                states(service)[document]?.let {
+                    it.generation > generationBeforeRemoval && it.executable && it.records.isEmpty()
+                } == true
+        }
+        resetProviders(service)
+        assertFalse(document.text.contains("import java.util.concurrent.atomic.AtomicReference;"))
+        assertTrue(document.text.contains("class PartialFailure"))
+        assertTrue(ImportTransitionTracker().candidates(states(service).getValue(document)).isEmpty())
     }
 
     private val document: Document

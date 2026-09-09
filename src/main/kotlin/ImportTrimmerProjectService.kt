@@ -159,7 +159,7 @@ class ImportTrimmerProjectService(
 
     private fun changed(event: DocumentEvent) {
         val old = states[event.document] ?: return
-        controller.takeIf { it.owns(event.document) }?.close(SuggestionCloseReason.OBSOLETE)
+        controller.invalidateAcceptance(event.document)
         val state = if (pluginEdits.contains(event.document) ||
             UndoManager.getInstance(project).isUndoOrRedoInProgress
         ) {
@@ -303,6 +303,7 @@ class ImportTrimmerProjectService(
                             states[document] = DocumentImportState(generation = current.generation + 1)
                         }
                         if (controller.owns(document)) controller.close(SuggestionCloseReason.UNCERTAIN)
+                        if (states.containsKey(document)) schedule(document)
                     } else if (result != RemovalResult.APPLIED && states.containsKey(document)) {
                         schedule(document)
                     }

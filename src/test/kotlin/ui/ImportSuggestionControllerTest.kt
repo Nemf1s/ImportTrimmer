@@ -123,6 +123,32 @@ class ImportSuggestionControllerTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue(controller.owns(myFixture.editor.document))
     }
 
+    fun testRevalidatedSameOfferReusesNotificationAndOriginalTimeout() {
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
+        dispatchEvents()
+        val notification = activeNotification()
+        val timeout = scheduler.tasks.single()
+        scheduler.advance(3_000)
+
+        controller.invalidateAcceptance(myFixture.editor.document)
+        invoke(notification, actionIndex = 1)
+        assertTrue(accepted.isEmpty())
+        assertFalse(notification.isExpired)
+
+        controller.show(myFixture.editor, listOf(listCandidate()), timeoutMillis = 10_000)
+
+        assertSame(notification, activeNotification())
+        assertSame(timeout, scheduler.tasks.single())
+        scheduler.advance(6_999)
+        dispatchEvents()
+        assertFalse(notification.isExpired)
+
+        scheduler.advance(1)
+        dispatchEvents()
+        assertTrue(notification.isExpired)
+        assertEquals(SuggestionCloseReason.TIMEOUT, closed.single().second)
+    }
+
     fun testMultipleCandidatesStayFrozenAndUseRemoveAllAction() {
         val offered = mutableListOf(listCandidate(), setCandidate())
         controller.show(myFixture.editor, offered, timeoutMillis = 10_000)

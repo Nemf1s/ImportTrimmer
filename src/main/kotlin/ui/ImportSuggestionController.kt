@@ -27,14 +27,20 @@ class ImportSuggestionController(
     private var document: Document? = null
     private var candidates: List<Candidate> = emptyList()
     private var timeout: CancelHandle? = null
+    private var acceptanceEnabled = false
 
     fun show(editor: Editor, offered: List<Candidate>, timeoutMillis: Long) {
         if (offered.isEmpty() || project.isDisposed) return
         reconcileExpiredNotification()
+        if (!acceptanceEnabled && notification != null && document === editor.document && candidates == offered) {
+            acceptanceEnabled = true
+            return
+        }
         close(SuggestionCloseReason.OBSOLETE)
         notificationToken = TOKENS.incrementAndGet()
         document = editor.document
         candidates = offered.toList()
+        acceptanceEnabled = true
 
         val prompt = if (offered.size == 1) {
             message("notification.single", offered.single().promptText)
@@ -57,7 +63,7 @@ class ImportSuggestionController(
         ) { _, current ->
             val acceptedDocument = document
             val accepted = candidates
-            if (notificationToken == token && acceptedDocument != null) {
+            if (notificationToken == token && acceptedDocument != null && acceptanceEnabled) {
                 finishClose(token, SuggestionCloseReason.ACCEPTED)
                 onAccepted(acceptedDocument, accepted)
                 current.expire()
@@ -88,6 +94,10 @@ class ImportSuggestionController(
         current.expire()
     }
 
+    fun invalidateAcceptance(target: Document) {
+        if (owns(target)) acceptanceEnabled = false
+    }
+
     fun owns(target: Document): Boolean = notification != null && document === target
 
     private fun finishClose(token: Long, reason: SuggestionCloseReason) {
@@ -99,6 +109,7 @@ class ImportSuggestionController(
         document = null
         candidates = emptyList()
         timeout = null
+        acceptanceEnabled = false
         notificationToken = 0
         if (closedDocument != null) onClosed(closedDocument, closedCandidates, reason)
     }
