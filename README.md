@@ -76,19 +76,6 @@ Analysis is deferred for syntax errors, uncommitted PSI, unresolved in-file Java
 
 IDEA's Optimize Imports on the Fly, Actions on Save, commit optimization, formatters, and other plugins can independently modify imports. Import Trimmer does not change those settings and guarantees only its own edit.
 
-## Development
-
-Use JDK 25. On this machine the matching runtime is included with IDEA 2026.2.2:
-
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\JetBrains\IntelliJ IDEA 2026.2.2\jbr'
-.\gradlew.bat test
-.\gradlew.bat buildPlugin
-.\gradlew.bat verifyPlugin
-```
-
-The installable ZIP is produced at `build/distributions/ImportTrimmer-1.0.0.zip`. Architecture decisions and validation evidence are in [docs/architecture.md](docs/architecture.md) and [docs/validation.md](docs/validation.md).
-
 ## Demo recording checklist
 
 1. Disable IDEA's own automatic import optimization for a controlled demonstration.
