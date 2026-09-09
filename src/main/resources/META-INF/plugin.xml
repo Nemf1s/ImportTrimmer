@@ -1,7 +1,7 @@
 <idea-plugin url="https://github.com/Nemf1s/ImportTrimmer">
   <id>io.github.nemf1s.ImportTrimmer</id>
   <name>Import Trimmer</name>
-  <vendor>Nemf1s</vendor>
+  <vendor url="https://github.com/Nemf1s">Artem Latyshev</vendor>
   <description><![CDATA[
     <p>Remove Java imports when they become unused.</p>
 
