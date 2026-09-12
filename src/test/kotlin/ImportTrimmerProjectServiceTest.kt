@@ -118,11 +118,13 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         awaitBaseline(service)
         val split = EditorFactory.getInstance().createEditor(document, project)
         waitUntil("Split editor was not observed") { editorCounts(service)[document] == 2 }
+        pluginEdits(service).add(document)
 
         EditorFactory.getInstance().releaseEditor(split)
         dispatchEvents()
         assertEquals(1, editorCounts(service)[document])
         assertTrue(states(service).containsKey(document))
+        assertTrue(pluginEdits(service).contains(document))
 
         invokeReleaseEditor(service, myFixture.editor)
         assertFalse(states(service).containsKey(document))
