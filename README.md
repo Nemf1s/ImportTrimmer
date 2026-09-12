@@ -1,3 +1,4 @@
+![Import Trimmer selectively removes a newly unused Java import](docs/images/import-trimmer-demo.gif)
 # Import Trimmer
 
 Import Trimmer watches the Java files you edit. When an import that was previously used becomes unused, it offers to remove it without sorting or optimizing the remaining imports.
