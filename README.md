@@ -6,7 +6,7 @@ Imports that were already unused when the file was opened are left unchanged.
 
 ## Compatibility
 
-Compatible with IntelliJ IDEA Ultimate 2026.2.2. Currently, supports only Java source files.
+Compatible with IntelliJ IDEA Ultimate 2026.2.2. Currently supports only Java source files.
 
 ## Install
 

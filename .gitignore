@@ -6,3 +6,4 @@ src/integrationTest/testData/lifecycle-project/.idea/*
 .intellijPlatform
 build
 out
+/ImportTrimmer.iml
