@@ -19,7 +19,7 @@ The exact `since-build` and `until-build` are deliberate. Compatibility with lat
 
 ## Install
 
-Install [ImportTrimmer-1.0.0.zip](build/distributions/ImportTrimmer-1.0.0.zip) through **Settings | Plugins | gear icon | Install Plugin from Disk**. Do not unpack the ZIP.
+Install [ImportTrimmer-1.0.1.zip](build/distributions/ImportTrimmer-1.0.1.zip) through **Settings | Plugins | gear icon | Install Plugin from Disk**. Do not unpack the ZIP.
 
 ## Behavior
 

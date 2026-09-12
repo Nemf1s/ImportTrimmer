@@ -2,6 +2,10 @@
 
 # ImportTrimmer Changelog
 
+## [1.0.1] - 2026-09-12
+
+- Release closed files promptly after background import checks, reducing unnecessary memory use during long editing sessions.
+
 ## [1.0.0] - 2026-09-09
 
 - Detect Java imports that transition from used to unused in open editors.
