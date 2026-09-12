@@ -1,29 +1,24 @@
 # Import Trimmer
 
-Import Trimmer is a local IntelliJ IDEA plugin that watches open Java editors. After it has reliably observed an import being used, it offers to remove that import if later semantic analysis finds it unused. Imports already unused at the first observation are left alone.
+Import Trimmer watches the Java files you edit. When an import that was previously used becomes unused, it offers to remove it without sorting or optimizing the remaining imports.
 
-The plugin is Java-only. Its implementation is Kotlin, and its analyzer/edit-planner boundary is ready for another language adapter, but no Kotlin source cleanup or Kotlin IDE-plugin dependency is included.
+Imports that were already unused when the file was opened are left unchanged.
 
 ## Compatibility
 
-This build targets IntelliJ IDEA Ultimate 2026.2.2 exactly:
-
-- Product version: `IU-2026.2.2`
-- Build: `262.10315.125`
-- Runtime/toolchain: Java 25
-- Kotlin: 2.3.20
-- IntelliJ Platform Gradle Plugin: 2.18.1
-- Gradle wrapper: 9.6.1
-
-The exact `since-build` and `until-build` are deliberate. Compatibility with later 2026.2 patches is not claimed until it is verified.
+Compatible with IntelliJ IDEA Ultimate 2026.2.2. Currently, supports only Java source files.
 
 ## Install
 
-Install [ImportTrimmer-1.0.1.zip](build/distributions/ImportTrimmer-1.0.1.zip) through **Settings | Plugins | gear icon | Install Plugin from Disk**. Do not unpack the ZIP.
+[Install Import Trimmer from the JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34181-import-trimmer).
 
 ## Behavior
 
-The default mode is **Ask before removing**. The plugin publishes a standard IDEA balloon, which the platform normally renders at the bottom-right without requesting editor focus. **Remove** performs one selective, undoable command; **Keep**, closing the notification, navigation, or the configured timeout leaves the file unchanged. Native-window placement and focus behavior still require the manual sandbox check.
+The default mode is **Ask before removing**. When an import becomes unused, the plugin displays a standard IDEA notification:
+
+- **Remove** removes the suggested import as a single undoable change.
+- **Keep**, closing the notification, navigating away, or letting it expire leaves the file unchanged.
+- **Settings** opens the Import Trimmer configuration.
 
 Settings under **Settings | Editor | Import Trimmer**:
 
@@ -68,24 +63,19 @@ class Example {
 
 The initially unused `Map` import stays, and `Map` remains before `Set`.
 
-## Preservation and conservative skips
+## Safety and preservation
 
-The plugin deletes only the accepted PSI-derived occurrence ranges. It does not optimize, sort, reformat, add, shorten, collapse, or convert imports. Remaining import spelling, order, grouping, comments, package text, and class body stay unchanged. A trailing import comment becomes a comment line.
+Import Trimmer removes only the imports included in an accepted suggestion. It does not run **Optimize Imports**, rearrange imports, reformat the file, or modify unrelated source code.
 
-Analysis is deferred for syntax errors, uncommitted PSI, unresolved in-file Java references, unavailable indices, duplicate import ambiguity, module-import syntax, multiline imports, and comments embedded before an import semicolon. A missed suggestion is expected in these cases. If an import becomes used and unused entirely between successful debounced analyses, no transition is observed and no suggestion is made.
+When Java analysis is incomplete or ambiguous—for example, while the file contains syntax errors or unresolved references—the plugin takes no action. Some short-lived used-to-unused transitions can be missed between debounced analyses; this is intentionally preferred over removing an import based on uncertain information.
 
-IDEA's Optimize Imports on the Fly, Actions on Save, commit optimization, formatters, and other plugins can independently modify imports. Import Trimmer does not change those settings and guarantees only its own edit.
+IDEA settings such as **Optimize Imports on the Fly**, Actions on Save, formatters, and other plugins may modify imports independently. Import Trimmer does not change those settings.
 
-## Demo recording checklist
+For implementation details and the complete list of conservatively skipped cases, see [Architecture](docs/architecture.md).
 
-1. Disable IDEA's own automatic import optimization for a controlled demonstration.
-2. Open `src/test/testData/DemoBefore.java` and wait for the initial baseline.
-3. Delete the `List<String> names;` line.
-4. Show that the notification appears at the bottom-right and typing remains in the editor.
-5. Let the notification time out and show that the file remains unchanged.
-6. Invoke **Review newly unused Java imports**, accept, and show that only `List` disappears.
-7. Undo once to restore the import, then edit normally and confirm there is no immediate re-removal.
-8. Repeat briefly in automatic and on-request modes.
+## Development
+
+Building the plugin requires JDK 25.
 
 ## License
 
