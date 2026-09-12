@@ -1,7 +1,8 @@
 package io.github.nemf1s.editing
 
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.smartReadAction
+import com.intellij.openapi.application.ReadConstraint
+import com.intellij.openapi.application.constrainedReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.project.Project
@@ -29,12 +30,14 @@ class ImportRemovalExecutor(
         markPluginEdit: (Boolean) -> Unit,
     ): RemovalResult {
         if (!document.isWritable || project.isDisposed) return RemovalResult.DECLINED
-        val planned = smartReadAction(project) {
+        val planned = constrainedReadAction(
+            ReadConstraint.inSmartMode(project),
+            ReadConstraint.withDocumentsCommitted(project),
+        ) {
             val manager = PsiDocumentManager.getInstance(project)
-            if (!manager.isCommitted(document)) return@smartReadAction null
-            val file = manager.getPsiFile(document) ?: return@smartReadAction null
-            val provider = selectProvider(providers, file) ?: return@smartReadAction null
-            if (provider.analyzer.providerId != request.providerId) return@smartReadAction null
+            val file = manager.getPsiFile(document) ?: return@constrainedReadAction null
+            val provider = selectProvider(providers, file) ?: return@constrainedReadAction null
+            if (provider.analyzer.providerId != request.providerId) return@constrainedReadAction null
             val token = FreshnessToken(
                 stamp = document.modificationStamp,
                 psi = PsiModificationTracker.getInstance(project).modificationCount,

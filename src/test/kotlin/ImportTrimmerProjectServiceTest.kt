@@ -127,6 +127,18 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
         invokeReleaseEditor(service, myFixture.editor)
         assertFalse(states(service).containsKey(document))
         assertFalse(editorCounts(service).containsKey(document))
+        assertFalse(pluginEdits(service).contains(document))
+    }
+
+    fun testDisposeClearsPluginEditDocuments() {
+        configureTransitionFile("DisposeExample.java", "DisposeExample")
+        val service = start(RemovalMode.ASK)
+        awaitBaseline(service)
+        pluginEdits(service).add(document)
+
+        service.dispose()
+
+        assertTrue(pluginEdits(service).isEmpty())
     }
 
     fun testRapidSupersedingEditCannotPublishStaleUnusedResult() {
@@ -481,6 +493,10 @@ class ImportTrimmerProjectServiceTest : LightJavaCodeInsightFixtureTestCase() {
     @Suppress("UNCHECKED_CAST")
     private fun removalJobs(service: ImportTrimmerProjectService): IdentityHashMap<Document, Job> =
         field("removalJobs").get(service) as IdentityHashMap<Document, Job>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun pluginEdits(service: ImportTrimmerProjectService): MutableSet<Document> =
+        field("pluginEdits").get(service) as MutableSet<Document>
 
     @Suppress("UNCHECKED_CAST")
     private fun providers(service: ImportTrimmerProjectService): MutableList<ImportProvider> =

@@ -5,7 +5,8 @@ import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.codeInsight.template.TemplateManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.smartReadAction
+import com.intellij.openapi.application.ReadConstraint
+import com.intellij.openapi.application.constrainedReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.command.undo.UndoManager
@@ -35,7 +36,6 @@ import io.github.nemf1s.tracking.*
 import io.github.nemf1s.ui.*
 import io.github.nemf1s.MyMessageBundle.message
 import kotlinx.coroutines.*
-import kotlin.coroutines.resume
 import java.util.*
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -152,6 +152,7 @@ class ImportTrimmerProjectService(
         states.remove(document)
         analysisJobs.remove(document)?.cancel()
         removalJobs.remove(document)?.cancel()
+        pluginEdits.remove(document)
         manualReviewRequests.remove(document)
         loggedFailures.remove(document)
         if (controller.owns(document)) controller.close(SuggestionCloseReason.DISPOSED)
@@ -182,11 +183,13 @@ class ImportTrimmerProjectService(
             val currentJob = coroutineContext.job
             try {
                 delay(preferences.debounceMs.milliseconds)
-                awaitCommitted(document)
-                val snapshot = smartReadAction(project) {
+                val snapshot = constrainedReadAction(
+                    ReadConstraint.inSmartMode(project),
+                    ReadConstraint.withDocumentsCommitted(project),
+                ) {
                     val manager = PsiDocumentManager.getInstance(project)
-                    val file = manager.getPsiFile(document) ?: return@smartReadAction null
-                    val provider = selectProvider(providers, file) ?: return@smartReadAction null
+                    val file = manager.getPsiFile(document) ?: return@constrainedReadAction null
+                    val provider = selectProvider(providers, file) ?: return@constrainedReadAction null
                     val token = FreshnessToken(
                         document.modificationStamp,
                         PsiModificationTracker.getInstance(project).modificationCount,
@@ -267,7 +270,6 @@ class ImportTrimmerProjectService(
             var result: RemovalResult? = null
             var failed = false
             try {
-                awaitCommitted(document)
                 result = executor.execute(
                     document,
                     request,
@@ -395,16 +397,6 @@ class ImportTrimmerProjectService(
         if (loggedFailures.add(document)) LOG.warn(summary, exception)
     }
 
-    private suspend fun awaitCommitted(document: Document) {
-        withContext(Dispatchers.EDT) {
-            suspendCancellableCoroutine { continuation ->
-                PsiDocumentManager.getInstance(project).performForCommittedDocument(document) {
-                    if (continuation.isActive) continuation.resume(Unit)
-                }
-            }
-        }
-    }
-
     private fun eligibleEditor(editor: Editor): Boolean {
         if (editor.project !== project || editor.isViewer || project.isDisposed) return false
         val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return false
@@ -423,6 +415,7 @@ class ImportTrimmerProjectService(
         removalJobs.values.forEach(Job::cancel)
         states.clear()
         editorCounts.clear()
+        pluginEdits.clear()
         manualReviewRequests.clear()
         loggedFailures.clear()
     }
