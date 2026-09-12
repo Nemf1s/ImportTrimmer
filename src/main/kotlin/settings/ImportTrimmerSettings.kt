@@ -4,7 +4,7 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
-import io.github.nemf1s.MyMessageBundle.message
+import io.github.nemf1s.ImportTrimmerBundle.message
 
 enum class RemovalMode(val messageKey: String) {
     ASK("mode.ask"),

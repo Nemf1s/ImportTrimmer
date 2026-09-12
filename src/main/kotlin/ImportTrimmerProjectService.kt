@@ -33,7 +33,7 @@ import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.util.PsiModificationTracker
-import io.github.nemf1s.MyMessageBundle.message
+import io.github.nemf1s.ImportTrimmerBundle.message
 import io.github.nemf1s.analysis.AnalysisQuality
 import io.github.nemf1s.analysis.AnalysisSnapshot
 import io.github.nemf1s.analysis.Candidate

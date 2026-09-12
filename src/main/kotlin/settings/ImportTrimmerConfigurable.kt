@@ -5,7 +5,7 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
 import com.intellij.ui.dsl.builder.panel
 import io.github.nemf1s.ImportTrimmerProjectService
-import io.github.nemf1s.MyMessageBundle.message
+import io.github.nemf1s.ImportTrimmerBundle.message
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JComponent

@@ -36,7 +36,7 @@
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
   <depends>com.intellij.java</depends>
-  <resource-bundle>messages.MyMessageBundle</resource-bundle>
+  <resource-bundle>messages.ImportTrimmerBundle</resource-bundle>
   <extensions defaultExtensionNs="com.intellij">
     <postStartupActivity implementation="io.github.nemf1s.ImportTrimmerStartupActivity"/>
     <notificationGroup id="Import Trimmer suggestions"

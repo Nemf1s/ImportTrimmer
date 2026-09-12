@@ -8,7 +8,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
-import io.github.nemf1s.MyMessageBundle.message
+import io.github.nemf1s.ImportTrimmerBundle.message
 import io.github.nemf1s.analysis.Candidate
 import io.github.nemf1s.settings.ImportTrimmerConfigurable
 import java.util.concurrent.atomic.AtomicLong
