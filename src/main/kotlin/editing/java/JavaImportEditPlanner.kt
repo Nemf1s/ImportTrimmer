@@ -4,7 +4,13 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiJavaFile
-import io.github.nemf1s.analysis.*
+import io.github.nemf1s.analysis.AnalysisQuality
+import io.github.nemf1s.analysis.AnalysisSnapshot
+import io.github.nemf1s.analysis.Candidate
+import io.github.nemf1s.analysis.ImportEditPlan
+import io.github.nemf1s.analysis.ImportEditPlanner
+import io.github.nemf1s.analysis.SemanticStatus
+import io.github.nemf1s.analysis.TextDeletion
 import io.github.nemf1s.analysis.java.JavaImportAnalyzer
 
 class JavaImportEditPlanner : ImportEditPlanner {
@@ -32,12 +38,15 @@ class JavaImportEditPlanner : ImportEditPlanner {
                 TextDeletion(range, document.getText(range))
             } ?: return null
         }
-        if (deletions.sortedBy { it.range.startOffset }.zipWithNext().any {
-                it.first.range.endOffset > it.second.range.startOffset
-            }
-        ) return null
+        if (hasOverlappingRanges(deletions)) return null
+
         return ImportEditPlan(snapshot.token, deletions)
     }
+
+    private fun hasOverlappingRanges(deletions: List<TextDeletion>): Boolean = deletions
+        .sortedBy { it.range.startOffset }
+        .zipWithNext()
+        .any { (current, next) -> current.range.endOffset > next.range.startOffset }
 
     private fun deletionRange(document: Document, statement: TextRange): TextRange? {
         if (statement.startOffset < 0 || statement.endOffset > document.textLength) return null
@@ -49,17 +58,20 @@ class JavaImportEditPlanner : ImportEditPlanner {
         val prefix = document.charsSequence.subSequence(lineStart, statement.startOffset)
         val suffix = document.charsSequence.subSequence(statement.endOffset, lineEnd)
         if (prefix.isBlank() && suffix.isBlank()) {
-            val separatorEnd = when {
-                lineEnd >= document.textLength -> lineEnd
-                document.charsSequence[lineEnd] == '\r' &&
-                    lineEnd + 1 < document.textLength && document.charsSequence[lineEnd + 1] == '\n' -> lineEnd + 2
-                else -> lineEnd + 1
-            }
-            return TextRange(lineStart, separatorEnd)
+            return TextRange(lineStart, lineSeparatorEnd(document, lineEnd))
         }
         if (prefix.isBlank() && suffix.trimStart().startsWith("//")) {
             return TextRange(lineStart, statement.endOffset)
         }
         return statement
+    }
+
+    private fun lineSeparatorEnd(document: Document, lineEnd: Int): Int = when {
+        lineEnd >= document.textLength -> lineEnd
+        document.charsSequence[lineEnd] == '\r' &&
+            lineEnd + 1 < document.textLength &&
+            document.charsSequence[lineEnd + 1] == '\n' -> lineEnd + 2
+
+        else -> lineEnd + 1
     }
 }

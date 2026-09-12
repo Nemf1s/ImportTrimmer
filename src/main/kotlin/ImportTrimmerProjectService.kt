@@ -3,6 +3,7 @@ package io.github.nemf1s
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.codeInsight.template.TemplateManager
+import com.intellij.ide.scratch.ScratchUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ReadConstraint
@@ -10,34 +11,74 @@ import com.intellij.openapi.application.constrainedReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.command.undo.UndoManager
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.event.*
-import com.intellij.openapi.fileEditor.*
-import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.editor.event.EditorFactoryEvent
+import com.intellij.openapi.editor.event.EditorFactoryListener
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.GeneratedSourcesFilter
-import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
+import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.util.PsiModificationTracker
-import com.intellij.ide.scratch.ScratchUtil
-import io.github.nemf1s.analysis.*
+import io.github.nemf1s.MyMessageBundle.message
+import io.github.nemf1s.analysis.AnalysisQuality
+import io.github.nemf1s.analysis.AnalysisSnapshot
+import io.github.nemf1s.analysis.Candidate
+import io.github.nemf1s.analysis.FreshnessToken
+import io.github.nemf1s.analysis.ImportProvider
+import io.github.nemf1s.analysis.RemovalRequest
+import io.github.nemf1s.analysis.SemanticStatus
+import io.github.nemf1s.analysis.selectProvider
 import io.github.nemf1s.analysis.java.JavaImportAnalyzer
 import io.github.nemf1s.editing.ImportRemovalExecutor
 import io.github.nemf1s.editing.RemovalResult
 import io.github.nemf1s.editing.java.JavaImportEditPlanner
-import io.github.nemf1s.settings.*
-import io.github.nemf1s.tracking.*
-import io.github.nemf1s.ui.*
-import io.github.nemf1s.MyMessageBundle.message
-import kotlinx.coroutines.*
-import java.util.*
+import io.github.nemf1s.settings.ImportTrimmerSettings
+import io.github.nemf1s.settings.Preferences
+import io.github.nemf1s.settings.RemovalMode
+import io.github.nemf1s.tracking.DocumentImportState
+import io.github.nemf1s.tracking.ImportTransitionTracker
+import io.github.nemf1s.ui.CoroutineDelayScheduler
+import io.github.nemf1s.ui.ImportSuggestionController
+import io.github.nemf1s.ui.SuggestionCloseReason
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.TestOnly
+import java.util.Collections
+import java.util.IdentityHashMap
 import kotlin.time.Duration.Companion.milliseconds
+
+internal data class ImportTrimmerServiceSnapshot(
+    val documentState: DocumentImportState?,
+    val editorCount: Int,
+    val trackedDocumentCount: Int,
+    val observedDocumentCount: Int,
+    val pendingAnalysisCount: Int,
+    val pendingRemovalCount: Int,
+    val pluginEditActive: Boolean,
+    val pluginEditCount: Int,
+    val epoch: Long,
+)
 
 @Service(Service.Level.PROJECT)
 class ImportTrimmerProjectService(
@@ -108,10 +149,7 @@ class ImportTrimmerProjectService(
 
     fun settingsChanged() {
         epoch++
-        analysisJobs.values.forEach(Job::cancel)
-        removalJobs.values.forEach(Job::cancel)
-        analysisJobs.clear()
-        removalJobs.clear()
+        cancelPendingJobs()
         manualReviewRequests.clear()
         controller.close(SuggestionCloseReason.OBSOLETE)
         states.replaceAll { _, state -> DocumentImportState(generation = state.generation + 1) }
@@ -124,6 +162,40 @@ class ImportTrimmerProjectService(
         manualReviewRequests.add(editor.document)
         schedule(editor.document)
     }
+
+    @TestOnly
+    internal fun diagnosticSnapshot(document: Document) = ImportTrimmerServiceSnapshot(
+        documentState = states[document],
+        editorCount = editorCounts[document] ?: 0,
+        trackedDocumentCount = states.size,
+        observedDocumentCount = editorCounts.size,
+        pendingAnalysisCount = analysisJobs.size,
+        pendingRemovalCount = removalJobs.size,
+        pluginEditActive = pluginEdits.contains(document),
+        pluginEditCount = pluginEdits.size,
+        epoch = epoch,
+    )
+
+    @TestOnly
+    fun hasReliableBaseline(document: Document): Boolean = states[document]?.executable == true
+
+    @TestOnly
+    internal fun replaceProvidersForTest(replacements: List<ImportProvider>) {
+        providers.clear()
+        providers.addAll(replacements)
+    }
+
+    @TestOnly
+    internal fun setPluginEditForTest(document: Document, active: Boolean) {
+        if (active) pluginEdits.add(document) else pluginEdits.remove(document)
+    }
+
+    @TestOnly
+    internal fun releaseEditorForTest(editor: Editor) = releaseEditor(editor)
+
+    @TestOnly
+    internal fun removeAcceptedForTest(document: Document, candidates: List<Candidate>) =
+        removeAccepted(document, candidates)
 
     private fun observeIfNeeded(editor: Editor) {
         if (!states.containsKey(editor.document)) {
@@ -175,29 +247,15 @@ class ImportTrimmerProjectService(
     private fun schedule(document: Document) {
         analysisJobs.remove(document)?.cancel()
         val preferences = settings()
-        if (!preferences.enabled || !states.containsKey(document)) return
-        val generation = states.getValue(document).generation
-        val anchors = states.getValue(document).anchors
+        if (!preferences.enabled) return
+        val state = states[document] ?: return
+        val generation = state.generation
         val scheduledEpoch = epoch
         analysisJobs[document] = coroutineScope.launch {
             val currentJob = coroutineContext.job
             try {
                 delay(preferences.debounceMs.milliseconds)
-                val snapshot = constrainedReadAction(
-                    ReadConstraint.inSmartMode(project),
-                    ReadConstraint.withDocumentsCommitted(project),
-                ) {
-                    val manager = PsiDocumentManager.getInstance(project)
-                    val file = manager.getPsiFile(document) ?: return@constrainedReadAction null
-                    val provider = selectProvider(providers, file) ?: return@constrainedReadAction null
-                    val token = FreshnessToken(
-                        document.modificationStamp,
-                        PsiModificationTracker.getInstance(project).modificationCount,
-                        generation,
-                        scheduledEpoch,
-                    )
-                    provider.analyzer.analyze(file, document, token, anchors)
-                } ?: return@launch
+                val snapshot = analyze(document, state, scheduledEpoch) ?: return@launch
                 withContext(Dispatchers.EDT) {
                     if (!snapshotIsCurrent(document, snapshot, generation, scheduledEpoch)) return@withContext
                     loggedFailures.remove(document)
@@ -219,6 +277,26 @@ class ImportTrimmerProjectService(
         }
     }
 
+    private suspend fun analyze(
+        document: Document,
+        state: DocumentImportState,
+        scheduledEpoch: Long,
+    ): AnalysisSnapshot? = constrainedReadAction(
+        ReadConstraint.inSmartMode(project),
+        ReadConstraint.withDocumentsCommitted(project),
+    ) {
+        val manager = PsiDocumentManager.getInstance(project)
+        val file = manager.getPsiFile(document) ?: return@constrainedReadAction null
+        val provider = selectProvider(providers, file) ?: return@constrainedReadAction null
+        val token = FreshnessToken(
+            stamp = document.modificationStamp,
+            psi = PsiModificationTracker.getInstance(project).modificationCount,
+            generation = state.generation,
+            epoch = scheduledEpoch,
+        )
+        provider.analyzer.analyze(file, document, token, state.anchors)
+    }
+
     private fun publish(document: Document, snapshot: AnalysisSnapshot) {
         val old = states[document] ?: return
         if (snapshot.quality != AnalysisQuality.RELIABLE) {
@@ -234,7 +312,9 @@ class ImportTrimmerProjectService(
             if (controller.owns(document)) controller.close(SuggestionCloseReason.OBSOLETE)
             if (manualReview) {
                 manualReviewRequests.remove(document)
-                activeEditor(document)?.let { HintManager.getInstance().showInformationHint(it, message("review.none")) }
+                activeEditor(document)?.let { editor ->
+                    HintManager.getInstance().showInformationHint(editor, message("review.none"))
+                }
             }
             return
         }
@@ -248,7 +328,7 @@ class ImportTrimmerProjectService(
         }
         if (manualReview) {
             manualReviewRequests.remove(document)
-            controller.show(editor, candidates, settings().timeoutSeconds * 1_000L)
+            controller.show(editor, candidates, settings().timeoutSeconds * MILLIS_PER_SECOND)
             return
         }
         when (settings().mode) {
@@ -277,13 +357,7 @@ class ImportTrimmerProjectService(
                     generation,
                     requestEpoch,
                     isAuthorized = {
-                        epoch == requestEpoch && states[document]?.generation == generation &&
-                            request.candidates.all { candidate ->
-                                states[document]?.records?.get(candidate.key)?.let {
-                                    it.episode == candidate.episode && it.eligible &&
-                                        it.observation.status == SemanticStatus.UNUSED
-                                } == true
-                            }
+                        isRemovalAuthorized(document, request, generation, requestEpoch)
                     },
                     markPluginEdit = { active ->
                         if (active) pluginEdits.add(document) else pluginEdits.remove(document)
@@ -314,6 +388,23 @@ class ImportTrimmerProjectService(
         }
     }
 
+    private fun isRemovalAuthorized(
+        document: Document,
+        request: RemovalRequest,
+        generation: Long,
+        requestEpoch: Long,
+    ): Boolean {
+        if (epoch != requestEpoch) return false
+        val state = states[document]?.takeIf { it.generation == generation } ?: return false
+        return request.candidates.all { candidate ->
+            state.records[candidate.key]?.let { record ->
+                record.episode == candidate.episode &&
+                    record.eligible &&
+                    record.observation.status == SemanticStatus.UNUSED
+            } == true
+        }
+    }
+
     private fun suggestionClosed(document: Document, offered: List<Candidate>, reason: SuggestionCloseReason) {
         if (reason in DISMISSAL_REASONS) {
             states[document]?.let { states[document] = tracker.dismiss(it, offered) }
@@ -330,10 +421,7 @@ class ImportTrimmerProjectService(
 
     private fun invalidateAll() {
         epoch++
-        analysisJobs.values.forEach(Job::cancel)
-        removalJobs.values.forEach(Job::cancel)
-        analysisJobs.clear()
-        removalJobs.clear()
+        cancelPendingJobs()
         controller.close(SuggestionCloseReason.UNCERTAIN)
         states.replaceAll { _, state -> DocumentImportState(generation = state.generation + 1) }
         if (settings().enabled) states.keys.toList().forEach(::schedule)
@@ -341,10 +429,7 @@ class ImportTrimmerProjectService(
 
     private fun invalidateForIndexing() {
         epoch++
-        analysisJobs.values.forEach(Job::cancel)
-        removalJobs.values.forEach(Job::cancel)
-        analysisJobs.clear()
-        removalJobs.clear()
+        cancelPendingJobs()
         controller.close(SuggestionCloseReason.UNCERTAIN)
         states.replaceAll { _, state ->
             state.copy(generation = state.generation + 1, executable = false)
@@ -378,7 +463,7 @@ class ImportTrimmerProjectService(
         var next = tracker.markOffered(
             state,
             candidates,
-            now + settings().timeoutSeconds * 1_000L,
+            now + settings().timeoutSeconds * MILLIS_PER_SECOND,
         )
         val expired = candidates.filter { (tracker.offerDeadline(next, it) ?: Long.MAX_VALUE) <= now }
         if (expired.isNotEmpty()) next = tracker.dismiss(next, expired)
@@ -409,10 +494,16 @@ class ImportTrimmerProjectService(
 
     private fun settings(): Preferences = project.service<ImportTrimmerSettings>().state
 
-    override fun dispose() {
-        controller.close(SuggestionCloseReason.DISPOSED)
+    private fun cancelPendingJobs() {
         analysisJobs.values.forEach(Job::cancel)
         removalJobs.values.forEach(Job::cancel)
+        analysisJobs.clear()
+        removalJobs.clear()
+    }
+
+    override fun dispose() {
+        controller.close(SuggestionCloseReason.DISPOSED)
+        cancelPendingJobs()
         states.clear()
         editorCounts.clear()
         pluginEdits.clear()
@@ -422,7 +513,10 @@ class ImportTrimmerProjectService(
 
     companion object {
         private val LOG = Logger.getInstance(ImportTrimmerProjectService::class.java)
+        private const val MILLIS_PER_SECOND = 1_000L
+
         private fun monotonicMillis(): Long = System.nanoTime() / 1_000_000L
+
         private val DISMISSAL_REASONS = setOf(
             SuggestionCloseReason.KEEP,
             SuggestionCloseReason.TIMEOUT,

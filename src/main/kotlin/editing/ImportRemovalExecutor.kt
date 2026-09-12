@@ -7,13 +7,23 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiModificationTracker
 import io.github.nemf1s.MyMessageBundle.message
-import io.github.nemf1s.analysis.*
+import io.github.nemf1s.analysis.FreshnessToken
+import io.github.nemf1s.analysis.ImportEditPlan
+import io.github.nemf1s.analysis.ImportProvider
+import io.github.nemf1s.analysis.OccurrenceAnchor
+import io.github.nemf1s.analysis.RemovalRequest
+import io.github.nemf1s.analysis.selectProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-enum class RemovalResult { APPLIED, STALE, DECLINED }
+enum class RemovalResult {
+    APPLIED,
+    STALE,
+    DECLINED,
+}
 
 class ImportRemovalExecutor(
     private val project: Project,
@@ -58,19 +68,12 @@ class ImportRemovalExecutor(
                 message("command.remove"),
                 null,
                 Runnable {
-                    val token = plan.token
-                    val fresh = document.isWritable && file.isValid && file.isWritable &&
-                        document.modificationStamp == token.stamp &&
-                        PsiModificationTracker.getInstance(project).modificationCount == token.psi &&
-                        isAuthorized()
-                    val preflight = fresh && plan.deletions.all {
-                        it.range.endOffset <= document.textLength && document.getText(it.range) == it.expectedText
-                    }
-                    if (!preflight) return@Runnable
+                    if (!canApply(document, file, plan, isAuthorized)) return@Runnable
+
                     markPluginEdit(true)
                     try {
-                        plan.deletions.sortedByDescending { it.range.startOffset }.forEach {
-                            document.deleteString(it.range.startOffset, it.range.endOffset)
+                        plan.deletions.sortedByDescending { it.range.startOffset }.forEach { deletion ->
+                            document.deleteString(deletion.range.startOffset, deletion.range.endOffset)
                         }
                         result = RemovalResult.APPLIED
                     } finally {
@@ -82,4 +85,26 @@ class ImportRemovalExecutor(
             result
         }
     }
+
+    private fun canApply(
+        document: Document,
+        file: PsiFile,
+        plan: ImportEditPlan,
+        isAuthorized: () -> Boolean,
+    ): Boolean {
+        val token = plan.token
+        val isCurrent = document.isWritable &&
+            file.isValid &&
+            file.isWritable &&
+            document.modificationStamp == token.stamp &&
+            currentPsiModificationCount() == token.psi &&
+            isAuthorized()
+        return isCurrent && plan.deletions.all { deletion ->
+            deletion.range.endOffset <= document.textLength &&
+                document.getText(deletion.range) == deletion.expectedText
+        }
+    }
+
+    private fun currentPsiModificationCount(): Long =
+        PsiModificationTracker.getInstance(project).modificationCount
 }

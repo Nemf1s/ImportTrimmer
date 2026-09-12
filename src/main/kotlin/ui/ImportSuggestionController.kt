@@ -15,7 +15,14 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
 
 enum class SuggestionCloseReason {
-    KEEP, TIMEOUT, DISMISSED, NAVIGATION, ACCEPTED, OBSOLETE, UNCERTAIN, DISPOSED
+    KEEP,
+    TIMEOUT,
+    DISMISSED,
+    NAVIGATION,
+    ACCEPTED,
+    OBSOLETE,
+    UNCERTAIN,
+    DISPOSED,
 }
 
 class ImportSuggestionController(
@@ -37,7 +44,7 @@ class ImportSuggestionController(
     fun show(editor: Editor, offered: List<Candidate>, timeoutMillis: Long) {
         if (offered.isEmpty() || project.isDisposed) return
         reconcileExpiredNotification()
-        if (!acceptanceEnabled && notification != null && document === editor.document && candidates == offered) {
+        if (isInvalidatedSuggestion(editor.document, offered)) {
             acceptanceEnabled = true
             return
         }
@@ -47,11 +54,7 @@ class ImportSuggestionController(
         candidates = offered.toList()
         acceptanceEnabled = true
 
-        val prompt = if (offered.size == 1) {
-            message("notification.single", offered.single().promptText)
-        } else {
-            message("notification.multiple", offered.size)
-        }
+        val prompt = suggestionPrompt(offered)
         val created = NotificationGroupManager.getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP_ID)
             .createNotification(message("notification.title"), prompt, NotificationType.INFORMATION)
@@ -63,17 +66,19 @@ class ImportSuggestionController(
                 current.expire()
             }
         })
-        created.addAction(NotificationAction.create(
-            message(if (offered.size == 1) "notification.remove" else "notification.remove.all"),
-        ) { _, current ->
-            val acceptedDocument = document
-            val accepted = candidates
-            if (notificationToken == token && acceptedDocument != null && acceptanceEnabled) {
-                finishClose(token, SuggestionCloseReason.ACCEPTED)
-                onAccepted(acceptedDocument, accepted)
-                current.expire()
-            }
-        })
+        created.addAction(
+            NotificationAction.create(
+                message(if (offered.size == 1) "notification.remove" else "notification.remove.all"),
+            ) { _, current ->
+                val acceptedDocument = document
+                val acceptedCandidates = candidates
+                if (notificationToken == token && acceptedDocument != null && acceptanceEnabled) {
+                    finishClose(token, SuggestionCloseReason.ACCEPTED)
+                    onAccepted(acceptedDocument, acceptedCandidates)
+                    current.expire()
+                }
+            },
+        )
         created.addAction(NotificationAction.create(message("notification.settings")) { _, _ ->
             openSettings(project)
         })
@@ -86,7 +91,9 @@ class ImportSuggestionController(
         notification = created
         timeout = scheduler.schedule(timeoutMillis) {
             SwingUtilities.invokeLater {
-                if (notificationToken == token) close(SuggestionCloseReason.TIMEOUT)
+                if (notificationToken == token) {
+                    close(SuggestionCloseReason.TIMEOUT)
+                }
             }
         }
         created.notify(project)
@@ -103,7 +110,9 @@ class ImportSuggestionController(
     }
 
     fun invalidateAcceptance(target: Document) {
-        if (owns(target)) acceptanceEnabled = false
+        if (owns(target)) {
+            acceptanceEnabled = false
+        }
     }
 
     fun owns(target: Document): Boolean = notification != null && document === target
@@ -118,14 +127,25 @@ class ImportSuggestionController(
         candidates = emptyList()
         timeout = null
         acceptanceEnabled = false
-        notificationToken = 0
-        if (closedDocument != null) onClosed(closedDocument, closedCandidates, reason)
+        notificationToken = 0L
+        if (closedDocument != null) {
+            onClosed(closedDocument, closedCandidates, reason)
+        }
     }
 
     private fun reconcileExpiredNotification() {
         if (notification?.isExpired == true) {
             finishClose(notificationToken, SuggestionCloseReason.DISMISSED)
         }
+    }
+
+    private fun isInvalidatedSuggestion(target: Document, offered: List<Candidate>): Boolean =
+        !acceptanceEnabled && notification != null && document === target && candidates == offered
+
+    private fun suggestionPrompt(offered: List<Candidate>): String = if (offered.size == 1) {
+        message("notification.single", offered.single().promptText)
+    } else {
+        message("notification.multiple", offered.size)
     }
 
     companion object {

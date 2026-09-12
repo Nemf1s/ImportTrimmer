@@ -23,7 +23,7 @@ Install [ImportTrimmer-1.0.0.zip](build/distributions/ImportTrimmer-1.0.0.zip) t
 
 ## Behavior
 
-The default mode is **Ask before removing**. The plugin publishes a standard IDEA balloon, which the platform normally renders at the bottom-right without requesting editor focus. **Remove** performs one selective, undoable command; **Keep**, closing the notification, navigation, or the configured timeout leaves the file unchanged. Native-window placement and focus behavior still require the manual sandbox check recorded in `docs/validation.md`.
+The default mode is **Ask before removing**. The plugin publishes a standard IDEA balloon, which the platform normally renders at the bottom-right without requesting editor focus. **Remove** performs one selective, undoable command; **Keep**, closing the notification, navigation, or the configured timeout leaves the file unchanged. Native-window placement and focus behavior still require the manual sandbox check.
 
 Settings under **Settings | Editor | Import Trimmer**:
 

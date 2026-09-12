@@ -276,8 +276,18 @@ abstract class ImportTrimmerIntegrationTestBase {
         importTrimmerNotification()?.let { listOf(it.getContent()) }.orEmpty()
     }
 
-    protected fun waitForBaselineAnalysis() {
-        Thread.sleep(BASELINE_SETTLE.inWholeMilliseconds)
+    protected fun Driver.waitForBaselineAnalysis() {
+        waitFor(
+            message = "Initial import baseline was not established",
+            timeout = BASELINE_TIMEOUT,
+            interval = BASELINE_POLL_INTERVAL,
+        ) {
+            withContext(OnDispatcher.EDT) {
+                val project = singleProject()
+                service<RemoteImportTrimmerProjectService>(project)
+                    .hasReliableBaseline(selectedDocument())
+            }
+        }
     }
 
     private fun Driver.invokeEditorActionWithRetries(actionId: String, editor: Editor = selectedEditor()) {
@@ -331,7 +341,8 @@ abstract class ImportTrimmerIntegrationTestBase {
         private val AUTOMATIC_REMOVAL_BUDGET = 150.milliseconds
         private val AUTOMATIC_POLL_INTERVAL = 10.milliseconds
         private val UNDO_TIMEOUT = 2.seconds
-        private val BASELINE_SETTLE = 1.seconds
+        private val BASELINE_TIMEOUT = 30.seconds
+        private val BASELINE_POLL_INTERVAL = 50.milliseconds
         private val ACTION_RETRY_DELAY = 100.milliseconds
     }
 }
@@ -339,6 +350,7 @@ abstract class ImportTrimmerIntegrationTestBase {
 @Remote("io.github.nemf1s.ImportTrimmerProjectService", plugin = "io.github.nemf1s.ImportTrimmer")
 private interface RemoteImportTrimmerProjectService {
     fun settingsChanged()
+    fun hasReliableBaseline(document: Document): Boolean
 }
 
 @Remote("io.github.nemf1s.settings.ImportTrimmerSettings", plugin = "io.github.nemf1s.ImportTrimmer")
