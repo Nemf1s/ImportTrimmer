@@ -1,4 +1,8 @@
 .gradle
 .idea
+!src/integrationTest/testData/lifecycle-project/.idea/
+src/integrationTest/testData/lifecycle-project/.idea/*
+!src/integrationTest/testData/lifecycle-project/.idea/modules.xml
 .intellijPlatform
 build
+out
